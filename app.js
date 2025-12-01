@@ -1,6 +1,6 @@
 /**
- * FIXTURE PLANNER PRO v2.0
- * Generación completa + Importación de Modelos Excel
+ * FIXTURE PLANNER PRO v2.1
+ * Generación completa 52 partidos (Evita 8x3)
  */
 
 // --- ESTADO GLOBAL ---
@@ -19,80 +19,103 @@ const State = {
     courts: [], 
     teams: [], 
     matches: [],
-    templates: {} // Se llenará dinámicamente
+    templates: {} 
 };
 
 // --- UTILS ---
 function safeId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
 
 function excelTimeToString(fraction) {
-    if (!fraction || isNaN(fraction)) return "09:00"; // Default
+    if (!fraction || isNaN(fraction)) return "09:00"; 
     const totalSeconds = Math.round(fraction * 24 * 3600);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
 }
 
-// --- GENERADORES DE ESTRUCTURA (Lógica de tus Modelos) ---
-// Estos generadores crean la estructura "abstracta" (quién juega con quién)
-// y la distribuyen en slots genéricos si no hay un Excel cargado.
-
+// --- GENERADORES DE ESTRUCTURA (Lógica 52 Partidos) ---
 const ModelGenerators = {
-    "8x3_normal": function(teams) {
-        // Estructura oficial 8x3 (24 equipos / 8 zonas)
+    "8x3_normal": function() {
         let slots = [];
-        
-        // --- FASE 1: ZONAS (Día 1 y 2) ---
-        // Zonas A a H (1-8). Equipos 1,2,3 en A, etc.
-        const zonas = ['A','B','C','D','E','F','G','H'];
-        
-        // Rondas genéricas de zona triangular (1vs2, 2vs3, 3vs1)
-        const rondasZona = [
-            {r:1, m:[1,2]}, {r:2, m:[2,3]}, {r:3, m:[3,1]} // Índices relativos (1,2,3)
-        ];
-
         let matchCounter = 0;
-        
-        zonas.forEach((zona, zIdx) => {
-            const baseTeamIdx = zIdx * 3; // 0, 3, 6...
-            rondasZona.forEach(ronda => {
-                // Cálculo simple de día/hora para el default
-                // Día 1: Rondas 1 y parte de 2. Día 2: Resto.
-                matchCounter++;
-                let dia = matchCounter <= 12 ? 1 : 2; 
-                let cancha = (matchCounter % 2) + 1;
-                
-                // Hora simulada (0.375 = 9am, + 1h cada 2 partidos)
-                let timeBase = 0.375 + (Math.floor((matchCounter-1)/2) * (1/24)); 
-                if (dia === 2) timeBase = 0.375 + (Math.floor((matchCounter-13)/2) * (1/24));
 
-                slots.push({
-                    d: dia, t: timeBase, c: cancha, z: zona,
-                    h: (baseTeamIdx + ronda.m[0]).toString(), // ID Equipo "1", "2"...
-                    a: (baseTeamIdx + ronda.m[1]).toString()
-                });
+        // Helper para agregar partido
+        const add = (d, t, c, z, h, a) => {
+            matchCounter++;
+            slots.push({ d, t, c, z, h, a });
+        };
+
+        // --- FASE 1: ZONAS (24 Partidos) ---
+        // Distribución teórica en Días 1 y 2
+        // Zonas A..H. Equipos relativos: A(1,2,3), B(4,5,6)...
+        const zonas = ['A','B','C','D','E','F','G','H'];
+        // Rondas: 1vs2, 2vs3, 3vs1 (Indices relativos 0,1,2)
+        const rondas = [[0,1], [1,2], [2,0]]; 
+
+        zonas.forEach((zona, zIdx) => {
+            const base = zIdx * 3; // Offset de equipo
+            rondas.forEach((r, rIdx) => {
+                // Cálculo simple para distribuir en D1/D2
+                // Esto es solo un default, el CSV manda si se carga
+                const globalMatch = (zIdx * 3) + rIdx + 1;
+                const dia = globalMatch <= 12 ? 1 : 2;
+                const hora = 0.375 + (rIdx * 0.05); 
+                const cancha = (zIdx % 2) + 1;
+                
+                add(dia, hora, cancha, `Zona ${zona}`, (base + r[0] + 1).toString(), (base + r[1] + 1).toString());
             });
         });
 
-        // --- FASE 2: A1/A2 (Días 3, 4, 5) ---
-        // A1: 1° de A, D, E, H (Simulado: Eq 1, 10, 13, 22)
-        // A2: 1° de B, C, F, G (Simulado: Eq 4, 7, 16, 19)
-        // En el template default usamos placeholders de texto para fases finales
-        const matchesF2 = [
-            // A1
-            { h: "1° Zona A", a: "1° Zona D" }, { h: "1° Zona E", a: "1° Zona H" },
-            { h: "1° Zona A", a: "1° Zona E" }, { h: "1° Zona D", a: "1° Zona H" },
-            { h: "1° Zona A", a: "1° Zona H" }, { h: "1° Zona D", a: "1° Zona E" },
-            // A2
-            { h: "1° Zona B", a: "1° Zona C" }, { h: "1° Zona F", a: "1° Zona G" },
-            { h: "1° Zona B", a: "1° Zona F" }, { h: "1° Zona C", a: "1° Zona G" },
-            { h: "1° Zona B", a: "1° Zona G" }, { h: "1° Zona C", a: "1° Zona F" }
+        // --- FASE 2: ZONAS A1 / A2 (12 Partidos) ---
+        // A1: 1° de A, D, E, H
+        // A2: 1° de B, C, F, G
+        // Usamos placeholders de texto para simular la clasificación
+        const fase2 = [
+            // Ronda 1
+            {z:'A1', h:'1ºA', a:'1ºD'}, {z:'A1', h:'1ºE', a:'1ºH'},
+            {z:'A2', h:'1ºB', a:'1ºC'}, {z:'A2', h:'1ºF', a:'1ºG'},
+            // Ronda 2
+            {z:'A1', h:'1ºA', a:'1ºE'}, {z:'A1', h:'1ºD', a:'1ºH'},
+            {z:'A2', h:'1ºB', a:'1ºF'}, {z:'A2', h:'1ºC', a:'1ºG'},
+            // Ronda 3
+            {z:'A1', h:'1ºA', a:'1ºH'}, {z:'A1', h:'1ºD', a:'1ºE'},
+            {z:'A2', h:'1ºB', a:'1ºG'}, {z:'A2', h:'1ºC', a:'1ºF'}
         ];
-
-        matchesF2.forEach((m, i) => {
+        
+        fase2.forEach((m, i) => {
             let dia = 3 + Math.floor(i/4); // Días 3, 4, 5
-            slots.push({ d: dia, t: 0.5 + (i%2)*0.05, c: (i%2)+1, z: i<6?"Zona A1":"Zona A2", h: m.h, a: m.a });
+            add(dia, 0.375 + (i%4)*0.04, (i%2)+1, `Zona ${m.z}`, m.h, m.a);
         });
+
+        // --- FASE 3: LLAVE B (2dos Puestos) - 8 Partidos ---
+        // Cuartos
+        const b_qf = [
+            {h:'2ºA', a:'2ºD'}, {h:'2ºE', a:'2ºH'}, {h:'2ºB', a:'2ºC'}, {h:'2ºF', a:'2ºG'}
+        ];
+        b_qf.forEach((m, i) => add(3, 0.6, (i%2)+1, 'Llave B (4tos)', m.h, m.a));
+        
+        // Semis
+        add(4, 0.6, 1, 'Llave B (Semis)', 'GP Q1', 'GP Q2');
+        add(4, 0.6, 2, 'Llave B (Semis)', 'GP Q3', 'GP Q4');
+        
+        // Finales
+        add(5, 0.6, 1, 'Llave B (Final)', 'GP S1', 'GP S2');
+        add(5, 0.6, 2, 'Llave B (3er)', 'PP S1', 'PP S2');
+
+        // --- FASE 4: LLAVE C (3eros Puestos) - 8 Partidos ---
+        // Cuartos
+        const c_qf = [
+            {h:'3ºA', a:'3ºD'}, {h:'3ºE', a:'3ºH'}, {h:'3ºB', a:'3ºC'}, {h:'3ºF', a:'3ºG'}
+        ];
+        c_qf.forEach((m, i) => add(3, 0.7, (i%2)+1, 'Llave C (4tos)', m.h, m.a));
+        
+        // Semis
+        add(4, 0.7, 1, 'Llave C (Semis)', 'GP Q1', 'GP Q2');
+        add(4, 0.7, 2, 'Llave C (Semis)', 'GP Q3', 'GP Q4');
+        
+        // Finales
+        add(5, 0.7, 1, 'Llave C (Final)', 'GP S1', 'GP S2');
+        add(5, 0.7, 2, 'Llave C (3er)', 'PP S1', 'PP S2');
 
         return slots;
     }
@@ -107,9 +130,8 @@ const App = {
         this.renderTeams();
         this.updateUI(); 
         
-        // Inicializar templates por defecto si no existen
+        // Inicializar templates por defecto
         if (!State.templates["8x3_normal"]) {
-            // Generamos la estructura base para que el usuario vea algo al principio
             State.templates["8x3_normal"] = ModelGenerators["8x3_normal"]();
         }
     },
@@ -149,7 +171,6 @@ const App = {
         State.config.model = model;
         State.config.startDate = date;
         State.config.daysCount = parseInt(document.getElementById('cfg-days-count').value) || 5;
-        // ... guardar resto
         return true;
     },
 
@@ -279,7 +300,6 @@ const App = {
         const delimiter = (lines[0].match(/;/g)||[]).length > (lines[0].match(/,/g)||[]).length ? ';' : ',';
         const headers = lines[0].toLowerCase().split(delimiter);
         
-        // Buscar índices flexibles
         const idxDay = headers.findIndex(h => h.includes('día') || h.includes('dia'));
         const idxTime = headers.findIndex(h => h.includes('hora'));
         const idxCourt = headers.findIndex(h => h.includes('cancha'));
@@ -297,20 +317,15 @@ const App = {
             const cols = lines[i].split(delimiter);
             if(cols.length < 5) continue;
 
-            // Procesar Cancha: Soporte para AAA, 1, Cancha 1
             let cVal = cols[idxCourt].trim();
             let cNum = 1;
             if (['AAA','1','Cancha 1'].includes(cVal)) cNum = 1;
             else if (['BBB','2','Cancha 2'].includes(cVal)) cNum = 2;
-            else if (['CCC','3','Cancha 3'].includes(cVal)) cNum = 3;
-            else if (['DDD','4','Cancha 4'].includes(cVal)) cNum = 4;
-            else if (['EEE','5','Cancha 5'].includes(cVal)) cNum = 5;
-            else if (['FFF','6','Cancha 6'].includes(cVal)) cNum = 6;
             else cNum = parseInt(cVal) || 1;
 
             newTemplate.push({
-                d: parseFloat(cols[idxDay].replace(',', '.')), // Días pueden ser 1.0
-                t: parseFloat(cols[idxTime].replace(',', '.')), // Horas Excel
+                d: parseFloat(cols[idxDay].replace(',', '.')), 
+                t: parseFloat(cols[idxTime].replace(',', '.')),
                 c: cNum,
                 z: cols[idxZone] ? cols[idxZone].trim() : "-",
                 h: cols[idxHome].trim(),
@@ -335,26 +350,26 @@ const App = {
 
     generateFixture: function() {
         const modelKey = State.config.model;
-        // Si no existe, usamos el default
         let template = State.templates[modelKey];
+
         if (!template && ModelGenerators[modelKey]) {
-            template = ModelGenerators[modelKey](State.teams); // Generar on-the-fly
+            template = ModelGenerators[modelKey]();
         }
 
         if (!template || template.length === 0) {
-            alert("No hay plantilla para este modelo. Por favor sube el archivo CSV del modelo.");
+            alert("No hay plantilla para este modelo.");
             return;
         }
 
         if (State.teams.length < 2) return alert("Faltan equipos.");
 
-        // Mapeo de Equipos: Ordenamos por Zona para coincidir con índices 1, 2, 3...
         const sortedTeams = [...State.teams].sort((a, b) => a.zone.localeCompare(b.zone));
         const teamMap = {};
+        
         sortedTeams.forEach((t, i) => {
             const idx = (i+1).toString();
             teamMap[idx] = t.name;
-            teamMap[idx + ".0"] = t.name; // Soporte Excel "1.0"
+            teamMap[idx + ".0"] = t.name;
         });
 
         const matches = [];
@@ -364,11 +379,9 @@ const App = {
             const matchDate = new Date(startDate);
             matchDate.setDate(startDate.getDate() + (Math.floor(slot.d) - 1));
 
-            // Resolver nombres: Si es número, busca en mapa. Si es texto, úsalo literal.
             let hName = teamMap[slot.h] || slot.h;
             let aName = teamMap[slot.a] || slot.a;
 
-            // Nombre cancha
             const courtName = State.courts[slot.c - 1] ? State.courts[slot.c - 1].name : `Cancha ${slot.c}`;
 
             matches.push({
