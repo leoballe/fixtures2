@@ -42,6 +42,11 @@ const State = {
     matches: [] // Aquí se guardará el resultado final
 };
 
+// --- UTILIDADES ---
+function safeId(prefix) {
+  return prefix + "_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+}
+
 // --- APP ---
 const App = {
     init: function() {
@@ -141,32 +146,67 @@ const App = {
     },
 
     processCsvData: function(csvText) {
-        const lines = csvText.split(/\r\n|\n/);
-        let addedCount = 0;
-        // Limpiamos equipos anteriores si se importa uno nuevo
-        // State.teams = []; 
+        // Normalizar saltos de línea y filtrar vacíos
+        const lines = csvText.split(/\r\n|\n/).filter(line => line.trim() !== "");
+        
+        if (lines.length < 2) {
+            alert("El archivo CSV parece estar vacío o no tiene datos suficientes (se requiere encabezado + datos).");
+            return;
+        }
 
-        for (let i = 1; i < lines.length; i++) { // Asumiendo header en fila 0
+        // 1. Detección Inteligente de Delimitador (coma o punto y coma)
+        const headerLine = lines[0];
+        let delimiter = ';'; // Por defecto para tu archivo
+        if ((headerLine.match(/,/g) || []).length > (headerLine.match(/;/g) || []).length) {
+            delimiter = ',';
+        }
+
+        // 2. Mapeo de Columnas (Busca "Zona" y "Equipo" sin importar el orden)
+        const headers = headerLine.split(delimiter).map(h => h.trim().toLowerCase());
+        let zoneIdx = headers.findIndex(h => h.includes('zona'));
+        let nameIdx = headers.findIndex(h => h.includes('equipo') || h.includes('nombre'));
+
+        // Fallback por si no encuentra encabezados exactos (asume orden estándar)
+        if (zoneIdx === -1) zoneIdx = 0;
+        if (nameIdx === -1) nameIdx = 1;
+
+        let addedCount = 0;
+        let skippedCount = 0;
+
+        // 3. Procesar Filas
+        for (let i = 1; i < lines.length; i++) {
             const line = lines[i].trim();
             if (!line) continue;
-            let parts = line.split(';');
-            if (parts.length < 2) parts = line.split(',');
+
+            const parts = line.split(delimiter);
             
-            let zone = parts[0] ? parts[0].trim().toUpperCase() : '?';
-            let name = parts[1] ? parts[1].trim() : '';
+            // Extraer datos usando los índices detectados
+            let rawZone = parts[zoneIdx] || "";
+            let rawName = parts[nameIdx] || "";
+
+            let zone = rawZone.trim().toUpperCase();
+            let name = rawName.trim();
 
             if (name) {
-                // Verificar duplicados
-                if (!State.teams.some(t => t.name === name)) {
-                    State.teams.push({ id: safeId("tm"), name, zone });
+                // Evitar duplicados exactos (mismo nombre)
+                const exists = State.teams.some(t => t.name.toLowerCase() === name.toLowerCase());
+                if (!exists) {
+                    State.teams.push({ id: safeId("tm"), name, zone: zone || "?" });
                     addedCount++;
+                } else {
+                    skippedCount++;
                 }
             }
         }
+
         if (addedCount > 0) {
             this.renderTeams();
             this.saveState();
-            alert(`Se importaron ${addedCount} equipos.`);
+            alert(`Importación exitosa: ${addedCount} equipos agregados.`);
+        } else if (skippedCount > 0) {
+            alert(`No se agregaron equipos nuevos (${skippedCount} duplicados detectados).`);
+        } else {
+            alert("No se pudieron leer equipos. Verifica el formato del CSV (Ej: Zona;Equipo).");
         }
     },
 
