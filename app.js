@@ -155,6 +155,7 @@ const App = {
         }
 
         // 1. Detección Inteligente de Delimitador (coma o punto y coma)
+        // Contamos ocurrencias en la primera línea
         const headerLine = lines[0];
         let delimiter = ';'; // Por defecto para tu archivo
         if ((headerLine.match(/,/g) || []).length > (headerLine.match(/;/g) || []).length) {
@@ -184,6 +185,7 @@ const App = {
             let rawZone = parts[zoneIdx] || "";
             let rawName = parts[nameIdx] || "";
 
+            // Limpieza básica
             let zone = rawZone.trim().toUpperCase();
             let name = rawName.trim();
 
@@ -191,7 +193,11 @@ const App = {
                 // Evitar duplicados exactos (mismo nombre)
                 const exists = State.teams.some(t => t.name.toLowerCase() === name.toLowerCase());
                 if (!exists) {
-                    State.teams.push({ id: safeId("tm"), name, zone: zone || "?" });
+                    State.teams.push({
+                        id: safeId("tm"),
+                        name: name,
+                        zone: zone || "?" // Si no hay zona, va a '?'
+                    });
                     addedCount++;
                 } else {
                     skippedCount++;
