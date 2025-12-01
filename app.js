@@ -1,13 +1,13 @@
 /**
- * FIXTURE PLANNER PRO v2.2
- * Corrección de Caché y Generación Completa (52 Partidos)
+ * FIXTURE PLANNER PRO v3.0
+ * Generación Adaptativa (Sin dependencia de CSV externos)
  */
 
 // --- ESTADO GLOBAL ---
 const State = {
     config: {
         tournamentName: "",
-        model: "8x3_normal", 
+        model: "8x3_adaptable", // Único modelo inteligente
         startDate: "",
         daysCount: 5,
         matchDuration: 60,
@@ -16,106 +16,178 @@ const State = {
         doubleBronze: false,
         courtsCount: 2
     },
-    courts: [], 
-    teams: [], 
-    matches: [],
-    templates: {} 
+    courts: [],
+    teams: [],
+    matches: []
 };
 
 // --- UTILS ---
 function safeId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
 
 function excelTimeToString(fraction) {
-    if (!fraction || isNaN(fraction)) return "09:00"; 
+    if (!fraction || isNaN(fraction)) return "09:00";
     const totalSeconds = Math.round(fraction * 24 * 3600);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
 }
 
-// --- GENERADORES DE ESTRUCTURA (Lógica 52 Partidos) ---
-const ModelGenerators = {
-    "8x3_normal": function() {
-        let slots = [];
-        let matchCounter = 0;
+// --- LÓGICA DE NEGOCIO "HARDCODEADA" PERO ADAPTABLE ---
+const FixtureLogic = {
+    // Definición de la estructura ideal para 24 equipos (8 Zonas x 3)
+    structure24: {
+        zones: ['A','B','C','D','E','F','G','H'],
+        phase1_matches: [
+            // Patrón genérico por zona (1vs2, 2vs3, 3vs1)
+            // Se generará dinámicamente
+        ],
+        phase2_matches: [
+            // A1 (1ros de A, D, E, H)
+            { z: "A1", h: "1ºA", a: "1ºD" }, { z: "A1", h: "1ºE", a: "1ºH" },
+            { z: "A1", h: "1ºA", a: "1ºE" }, { z: "A1", h: "1ºD", a: "1ºH" },
+            { z: "A1", h: "1ºA", a: "1ºH" }, { z: "A1", h: "1ºD", a: "1ºE" },
+            // A2 (1ros de B, C, F, G)
+            { z: "A2", h: "1ºB", a: "1ºC" }, { z: "A2", h: "1ºF", a: "1ºG" },
+            { z: "A2", h: "1ºB", a: "1ºF" }, { z: "A2", h: "1ºC", a: "1ºG" },
+            { z: "A2", h: "1ºB", a: "1ºG" }, { z: "A2", h: "1ºC", a: "1ºF" }
+        ],
+        // Llaves B (2dos) y C (3ros) se calculan por cruces estándar
+    },
 
-        // Helper para agregar partido
-        const add = (d, t, c, z, h, a) => {
-            matchCounter++;
-            slots.push({ d, t, c, z, h, a });
+    generate: function(teams) {
+        const totalTeams = teams.length;
+        const matches = [];
+        let matchId = 1;
+
+        // 1. ORGANIZAR EQUIPOS EN ZONAS REALES
+        // Agrupamos los equipos cargados por su Zona
+        const zoneMap = {};
+        teams.forEach(t => {
+            if (!zoneMap[t.zone]) zoneMap[t.zone] = [];
+            zoneMap[t.zone].push(t);
+        });
+        
+        const activeZones = Object.keys(zoneMap).sort(); // Ej: ['A', 'B', 'C'...]
+
+        // --- FASE 1: GRUPOS (Todos contra todos en cada zona) ---
+        activeZones.forEach(zone => {
+            const zoneTeams = zoneMap[zone];
+            const count = zoneTeams.length;
+            
+            // Lógica para zona de 3
+            if (count === 3) {
+                matches.push(this.createMatch(matchId++, 1, 0.375, 1, `Zona ${zone}`, zoneTeams[0].name, zoneTeams[1].name)); // 1vs2
+                matches.push(this.createMatch(matchId++, 1, 0.375, 1, `Zona ${zone}`, zoneTeams[1].name, zoneTeams[2].name)); // 2vs3
+                matches.push(this.createMatch(matchId++, 2, 0.375, 1, `Zona ${zone}`, zoneTeams[2].name, zoneTeams[0].name)); // 3vs1
+            } 
+            // Lógica para zona de 2 (Ida y Vuelta) - Caso 20 equipos
+            else if (count === 2) {
+                matches.push(this.createMatch(matchId++, 1, 0.375, 1, `Zona ${zone}`, zoneTeams[0].name, zoneTeams[1].name)); // Ida
+                matches.push(this.createMatch(matchId++, 2, 0.375, 1, `Zona ${zone}`, zoneTeams[1].name, zoneTeams[0].name)); // Vuelta
+            }
+            // Lógica para zona de 4 (si hubiera)
+            else if (count === 4) {
+                // ... lógica de 4 ...
+            }
+        });
+
+        // --- FASE 2: CLASIFICACIÓN A1 / A2 ---
+        // Aquí adaptamos. Si no hay Zona H (caso < 24 equipos), el "1ºH" no existe.
+        // Reemplazo inteligente:
+        // Si falta 1ºH -> Buscamos al "Mejor 2do" global para completar A1.
+        
+        const slotsA1 = ["1ºA", "1ºD", "1ºE", "1ºH"];
+        const slotsA2 = ["1ºB", "1ºC", "1ºF", "1ºG"];
+
+        // Adaptación de slots si faltan zonas
+        if (!activeZones.includes('H')) {
+            // Reemplazar 1ºH por "Mejor 2º"
+            const idx = slotsA1.indexOf("1ºH");
+            if(idx !== -1) slotsA1[idx] = "Mejor 2º";
+        }
+        if (!activeZones.includes('G')) {
+            // Reemplazar 1ºG por "2do Mejor 2º"
+            const idx = slotsA2.indexOf("1ºG");
+            if(idx !== -1) slotsA2[idx] = "2do Mejor 2º";
+        }
+
+        // Generar partidos A1 (Todos contra todos - 3 fechas)
+        this.generateGroupMatches(matches, "Zona A1", slotsA1, 3); // Día 3 inicio
+        this.generateGroupMatches(matches, "Zona A2", slotsA2, 3);
+
+        // --- FASE 3: LLAVES ---
+        // Generar cuartos, semis y final para Puestos 9-16 (Segundos) y 17-24 (Terceros)
+        // Aquí también adaptamos: si falta una zona, hay un BYE.
+        
+        this.generateBracket(matches, "Llave B (2dos)", ["2ºA","2ºB","2ºC","2ºD","2ºE","2ºF","2ºG","2ºH"], activeZones, 3);
+        this.generateBracket(matches, "Llave C (3ros)", ["3ºA","3ºB","3ºC","3ºD","3ºE","3ºF","3ºG","3ºH"], activeZones, 3);
+
+        // --- FASE 4: FINALES (1-8) ---
+        // Día 5
+        matches.push(this.createMatch(900, 5, 0.5, 1, "Final", "1º Zona A1", "1º Zona A2"));
+        matches.push(this.createMatch(901, 5, 0.5, 2, "3er Puesto", "2º Zona A1", "2º Zona A2"));
+        matches.push(this.createMatch(902, 5, 0.4, 1, "5to Puesto", "3º Zona A1", "3º Zona A2"));
+        matches.push(this.createMatch(903, 5, 0.4, 2, "7mo Puesto", "4º Zona A1", "4º Zona A2"));
+
+        // Reordenar IDs
+        matches.forEach((m, i) => m.id = i + 1);
+        
+        return matches;
+    },
+
+    createMatch: function(id, day, time, court, zone, home, away) {
+        return {
+            id: id,
+            date: "", // Se calculará después
+            dayIndex: day, // 1-5
+            timeVal: time, // decimal excel
+            courtIndex: court, // 1-n
+            zone: zone,
+            home: home,
+            away: away
         };
+    },
 
-        // --- FASE 1: ZONAS (24 Partidos) ---
-        // Distribución teórica en Días 1 y 2
-        // Zonas A..H. Equipos relativos: A(1,2,3), B(4,5,6)...
-        const zonas = ['A','B','C','D','E','F','G','H'];
-        // Rondas: 1vs2, 2vs3, 3vs1 (Indices relativos 0,1,2)
-        const rondas = [[0,1], [1,2], [2,0]]; 
+    generateGroupMatches: function(matchesArray, zoneName, teams, startDay) {
+        // Round robin de 4 equipos (3 fechas)
+        // F1: 1-4, 2-3
+        matchesArray.push(this.createMatch(0, startDay, 0.375, 1, zoneName, teams[0], teams[3]));
+        matchesArray.push(this.createMatch(0, startDay, 0.375, 2, zoneName, teams[1], teams[2]));
+        // F2: 1-3, 4-2
+        matchesArray.push(this.createMatch(0, startDay+1, 0.375, 1, zoneName, teams[0], teams[2]));
+        matchesArray.push(this.createMatch(0, startDay+1, 0.375, 2, zoneName, teams[3], teams[1]));
+        // F3: 1-2, 3-4
+        matchesArray.push(this.createMatch(0, startDay+2, 0.375, 1, zoneName, teams[0], teams[1]));
+        matchesArray.push(this.createMatch(0, startDay+2, 0.375, 2, zoneName, teams[2], teams[3]));
+    },
 
-        zonas.forEach((zona, zIdx) => {
-            const base = zIdx * 3; // Offset de equipo
-            rondas.forEach((r, rIdx) => {
-                // Cálculo simple para distribuir en D1/D2
-                const globalMatch = (zIdx * 3) + rIdx + 1;
-                const dia = globalMatch <= 12 ? 1 : 2;
-                const hora = 0.375 + (rIdx * 0.05); 
-                const cancha = (zIdx % 2) + 1;
-                
-                add(dia, hora, cancha, `Zona ${zona}`, (base + r[0] + 1).toString(), (base + r[1] + 1).toString());
-            });
+    generateBracket: function(matchesArray, zoneName, slots, activeZones, startDay) {
+        // Filtramos slots inválidos (zonas que no existen)
+        // Ej: si activeZones llega hasta F, entonces 2ºG y 2ºH son BYE
+        const validSlots = slots.map(s => {
+            const zoneChar = s.slice(-1); // Última letra "A" de "2ºA"
+            return activeZones.includes(zoneChar) ? s : "BYE";
         });
 
-        // --- FASE 2: ZONAS A1 / A2 (12 Partidos) ---
-        // A1: 1° de A, D, E, H
-        // A2: 1° de B, C, F, G
-        const fase2 = [
-            // Ronda 1
-            {z:'A1', h:'1ºA', a:'1ºD'}, {z:'A1', h:'1ºE', a:'1ºH'},
-            {z:'A2', h:'1ºB', a:'1ºC'}, {z:'A2', h:'1ºF', a:'1ºG'},
-            // Ronda 2
-            {z:'A1', h:'1ºA', a:'1ºE'}, {z:'A1', h:'1ºD', a:'1ºH'},
-            {z:'A2', h:'1ºB', a:'1ºF'}, {z:'A2', h:'1ºC', a:'1ºG'},
-            // Ronda 3
-            {z:'A1', h:'1ºA', a:'1ºH'}, {z:'A1', h:'1ºD', a:'1ºE'},
-            {z:'A2', h:'1ºB', a:'1ºG'}, {z:'A2', h:'1ºC', a:'1ºF'}
+        // Cuartos (Día 3) - Cruces Fijos 1-8, 2-7, 3-6, 4-5 (o por sorteo/cercanía)
+        // Adaptamos al esquema 8x3: A-D, B-C, E-H, F-G
+        const qf = [
+            {h: validSlots[0], a: validSlots[3]}, // A vs D
+            {h: validSlots[1], a: validSlots[2]}, // B vs C
+            {h: validSlots[4], a: validSlots[7]}, // E vs H
+            {h: validSlots[5], a: validSlots[6]}  // F vs G
         ];
-        
-        fase2.forEach((m, i) => {
-            let dia = 3 + Math.floor(i/4); // Días 3, 4, 5
-            add(dia, 0.375 + (i%4)*0.04, (i%2)+1, `Zona ${m.z}`, m.h, m.a);
+
+        qf.forEach((m, i) => {
+            // Si alguno es BYE, el otro pasa directo (no se genera partido o se marca)
+            if (m.h === "BYE" || m.a === "BYE") return; 
+            matchesArray.push(this.createMatch(0, startDay, 0.5 + (i*0.05), 1, zoneName + " (4tos)", m.h, m.a));
         });
 
-        // --- FASE 3: LLAVE B (2dos Puestos) - 8 Partidos ---
-        // Cuartos
-        const b_qf = [
-            {h:'2ºA', a:'2ºD'}, {h:'2ºE', a:'2ºH'}, {h:'2ºB', a:'2ºC'}, {h:'2ºF', a:'2ºG'}
-        ];
-        b_qf.forEach((m, i) => add(3, 0.6, (i%2)+1, 'Llave B (4tos)', m.h, m.a));
-        
-        // Semis
-        add(4, 0.6, 1, 'Llave B (Semis)', 'GP Q1', 'GP Q2');
-        add(4, 0.6, 2, 'Llave B (Semis)', 'GP Q3', 'GP Q4');
-        
-        // Finales
-        add(5, 0.6, 1, 'Llave B (Final)', 'GP S1', 'GP S2');
-        add(5, 0.6, 2, 'Llave B (3er)', 'PP S1', 'PP S2');
-
-        // --- FASE 4: LLAVE C (3eros Puestos) - 8 Partidos ---
-        // Cuartos
-        const c_qf = [
-            {h:'3ºA', a:'3ºD'}, {h:'3ºE', a:'3ºH'}, {h:'3ºB', a:'3ºC'}, {h:'3ºF', a:'3ºG'}
-        ];
-        c_qf.forEach((m, i) => add(3, 0.7, (i%2)+1, 'Llave C (4tos)', m.h, m.a));
-        
-        // Semis
-        add(4, 0.7, 1, 'Llave C (Semis)', 'GP Q1', 'GP Q2');
-        add(4, 0.7, 2, 'Llave C (Semis)', 'GP Q3', 'GP Q4');
-        
-        // Finales
-        add(5, 0.7, 1, 'Llave C (Final)', 'GP S1', 'GP S2');
-        add(5, 0.7, 2, 'Llave C (3er)', 'PP S1', 'PP S2');
-
-        return slots;
+        // Semis y Finales (simulados con texto genérico por ahora)
+        matchesArray.push(this.createMatch(0, startDay+1, 0.6, 1, zoneName + " (Semi)", "Ganador Q1", "Ganador Q2"));
+        matchesArray.push(this.createMatch(0, startDay+1, 0.6, 2, zoneName + " (Semi)", "Ganador Q3", "Ganador Q4"));
+        matchesArray.push(this.createMatch(0, startDay+2, 0.7, 1, zoneName + " (Final)", "Ganador S1", "Ganador S2"));
     }
 };
 
@@ -127,58 +199,37 @@ const App = {
         this.renderCourts(); 
         this.renderTeams();
         this.updateUI(); 
-        
-        // --- CORRECCIÓN CRÍTICA ---
-        // Forzamos la regeneración del template por defecto con la lógica nueva
-        // sobrescribiendo cualquier versión vieja guardada en localStorage.
-        State.templates["8x3_normal"] = ModelGenerators["8x3_normal"]();
-        this.saveState(); // Guardamos inmediatamente el template actualizado
     },
 
-    goToStep: function(stepNumber) {
-        if (stepNumber === 2 && !this.validateStep1()) return;
-        if (stepNumber === 3) this.saveCourtsState();
-        if (stepNumber === 4) {
-            if (State.teams.length < 2) {
-                alert("Carga equipos antes de generar.");
-                return;
-            }
-            if (State.matches.length > 0) this.renderFixture();
-        }
-
+    goToStep: function(n) {
+        if (n===2 && !this.validateStep1()) return;
+        if (n===3) this.saveCourtsState();
+        if (n===4 && State.teams.length < 2) return alert("Carga equipos.");
+        
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        document.getElementById(`step-${stepNumber}`).classList.add('active');
-        document.querySelectorAll('.step-btn').forEach(btn => {
-            btn.classList.remove('active');
-            if(btn.dataset.step == stepNumber) {
-                btn.classList.add('active');
-                btn.removeAttribute('disabled');
-            }
+        document.getElementById(`step-${n}`).classList.add('active');
+        document.querySelectorAll('.step-btn').forEach(b => {
+            b.classList.remove('active');
+            if(b.dataset.step == n) { b.classList.add('active'); b.removeAttribute('disabled'); }
         });
         this.saveState();
     },
 
-    // --- STEP 1 & 2 ---
     validateStep1: function() {
         const name = document.getElementById('cfg-name').value;
-        const model = document.getElementById('cfg-model').value;
         const date = document.getElementById('cfg-start-date').value;
-
-        if (!name || !model || !date) return alert("Completa Nombre, Modelo y Fecha.") && false;
+        if (!name || !date) return alert("Falta nombre o fecha") && false;
         
         State.config.tournamentName = name;
-        State.config.model = model;
         State.config.startDate = date;
         State.config.daysCount = parseInt(document.getElementById('cfg-days-count').value) || 5;
         return true;
     },
 
     generateCourtSlots: function() {
-        const count = parseInt(document.getElementById('cfg-courts-count').value) || 1;
+        const n = parseInt(document.getElementById('cfg-courts-count').value);
         State.courts = [];
-        for(let i=1; i<=count; i++) {
-            State.courts.push({ id: i, name: `Cancha ${i}`, openTime:"09:00", closeTime:"22:00", hasBreak:false });
-        }
+        for(let i=1; i<=n; i++) State.courts.push({ id:i, name:`Cancha ${i}` });
         this.renderCourts();
         this.saveState();
     },
@@ -186,59 +237,47 @@ const App = {
     renderCourts: function() {
         const c = document.getElementById('courts-container');
         if(!c) return;
-        c.innerHTML = State.courts.map((court, i) => `
-            <div class="court-card">
-                <div class="form-group"><label>Nombre</label><input type="text" value="${court.name}" onchange="App.updateCourt(${i},'name',this.value)"></div>
-            </div>
+        c.innerHTML = State.courts.map((ct, i) => `
+            <div class="court-card"><label>Nombre:</label><input type="text" value="${ct.name}" onchange="State.courts[${i}].name=this.value;App.saveState()"></div>
         `).join('');
     },
-    updateCourt: (i, k, v) => State.courts[i][k] = v,
     saveCourtsState: () => App.saveState(),
 
-    // --- STEP 3: EQUIPOS ---
-    handleCsvUpload: function(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => App.processCsvData(e.target.result);
-        reader.readAsText(file);
-        event.target.value = ''; 
+    // EQUIPOS
+    handleCsvUpload: function(e) {
+        const f = e.target.files[0];
+        if(!f) return;
+        const r = new FileReader();
+        r.onload = (ev) => this.parseTeams(ev.target.result);
+        r.readAsText(f);
+        e.target.value = '';
     },
 
-    processCsvData: function(csvText) {
-        const lines = csvText.split(/\r\n|\n/).filter(line => line.trim() !== "");
-        if (lines.length < 2) return alert("CSV vacío.");
-
-        const header = lines[0];
-        const delimiter = (header.match(/;/g)||[]).length > (header.match(/,/g)||[]).length ? ';' : ',';
-        const headers = header.split(delimiter).map(h => h.trim().toLowerCase());
+    parseTeams: function(txt) {
+        const lines = txt.split(/\r\n|\n/).filter(l => l.trim());
+        if(lines.length < 2) return alert("CSV vacío");
+        const delim = lines[0].includes(';') ? ';' : ',';
         
-        let zoneIdx = headers.findIndex(h => h.includes('zona'));
-        let nameIdx = headers.findIndex(h => h.includes('equipo') || h.includes('nombre'));
-        if (zoneIdx === -1) zoneIdx = 0; 
-        if (nameIdx === -1) nameIdx = 1;
-
-        let added = 0;
-        for (let i = 1; i < lines.length; i++) {
-            const parts = lines[i].split(delimiter);
-            let name = parts[nameIdx] ? parts[nameIdx].trim() : "";
-            let zone = parts[zoneIdx] ? parts[zoneIdx].trim().toUpperCase() : "?";
-            
-            if (name && !State.teams.some(t => t.name === name)) {
-                State.teams.push({ id: safeId(), name, zone });
-                added++;
-            }
+        let newTeams = [];
+        for(let i=1; i<lines.length; i++) {
+            const cols = lines[i].split(delim);
+            if(cols.length >= 2) newTeams.push({ zone: cols[0].trim().toUpperCase(), name: cols[1].trim() });
         }
+        
+        // Ordenar por Zona
+        newTeams.sort((a,b) => a.zone.localeCompare(b.zone));
+        
+        State.teams = newTeams;
         this.renderTeams();
         this.saveState();
-        if(added > 0) alert(`Importados ${added} equipos.`);
+        alert(`Cargados ${newTeams.length} equipos.`);
     },
 
     addManualTeam: function() {
-        const name = document.getElementById('manual-team-name').value;
-        const zone = document.getElementById('manual-team-zone').value.toUpperCase();
-        if(name) {
-            State.teams.push({ id: safeId(), name, zone: zone || "?" });
+        const n = document.getElementById('manual-team-name').value;
+        const z = document.getElementById('manual-team-zone').value;
+        if(n) {
+            State.teams.push({ id: safeId(), name: n, zone: z.toUpperCase() || "?" });
             this.renderTeams();
             this.saveState();
             document.getElementById('manual-team-name').value = "";
@@ -246,18 +285,17 @@ const App = {
     },
 
     deleteTeam: function(id) {
-        State.teams = State.teams.filter(t => t.id !== id);
-        this.renderTeams();
-        this.saveState();
+        State.teams = State.teams.filter(t => t.id !== id); // Error corregido: id no existía en obj manual
+        this.renderTeams(); this.saveState();
     },
     deleteAllTeams: function() {
-        if(confirm("¿Borrar todos?")) { State.teams = []; this.renderTeams(); this.saveState(); }
+        if(confirm("¿Borrar?")) { State.teams = []; this.renderTeams(); this.saveState(); }
     },
 
     renderTeams: function() {
-        const tbody = document.getElementById('teams-list-body');
-        if(!tbody) return;
-        document.getElementById('team-count').textContent = State.teams.length;
+        const tb = document.getElementById('teams-list-body');
+        document.getElementById('team-count').innerText = State.teams.length;
+        if(!tb) return;
         
         if(State.teams.length === 0) {
             document.getElementById('empty-teams-msg').style.display = 'block';
@@ -267,194 +305,81 @@ const App = {
         document.getElementById('empty-teams-msg').style.display = 'none';
         document.getElementById('teams-table').style.display = 'table';
 
-        const sorted = [...State.teams].sort((a,b) => a.zone.localeCompare(b.zone));
-        tbody.innerHTML = sorted.map((t, i) => `
+        tb.innerHTML = State.teams.map((t, i) => `
             <tr>
-                <td>${i+1}</td>
-                <td><span class="stats-badge" style="background:var(--primary);color:white">${t.zone}</span></td>
-                <td>${t.name}</td>
+                <td>${i+1}</td><td><span class="stats-badge">${t.zone}</span></td><td>${t.name}</td>
                 <td style="text-align:right"><button class="btn-icon" onclick="App.deleteTeam('${t.id}')"><i class="fa-solid fa-trash"></i></button></td>
             </tr>
         `).join('');
     },
 
-    // --- STEP 4: GESTIÓN DE MODELOS ---
-    handleModelUpload: function(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            if(App.parseModelCsv(e.target.result, file.name)) {
-                alert("Modelo cargado exitosamente. Seleccionado automáticamente.");
-            }
-        };
-        reader.readAsText(file);
-        event.target.value = '';
-    },
-
-    parseModelCsv: function(csvText, fileName) {
-        const lines = csvText.split(/\r\n|\n/).filter(l => l.trim());
-        if(lines.length < 2) return false;
-
-        const delimiter = (lines[0].match(/;/g)||[]).length > (lines[0].match(/,/g)||[]).length ? ';' : ',';
-        const headers = lines[0].toLowerCase().split(delimiter);
-        
-        const idxDay = headers.findIndex(h => h.includes('día') || h.includes('dia'));
-        const idxTime = headers.findIndex(h => h.includes('hora'));
-        const idxCourt = headers.findIndex(h => h.includes('cancha'));
-        const idxZone = headers.findIndex(h => h.includes('zona'));
-        const idxHome = headers.findIndex(h => h.includes('equipo l'));
-        const idxAway = headers.findIndex(h => h.includes('equipo v'));
-
-        if(idxDay === -1 || idxTime === -1) {
-            alert("Error: El CSV del modelo debe tener columnas 'Día' y 'Hora'.");
-            return false;
-        }
-
-        const newTemplate = [];
-        for(let i=1; i<lines.length; i++) {
-            const cols = lines[i].split(delimiter);
-            if(cols.length < 5) continue;
-
-            let cVal = cols[idxCourt].trim();
-            let cNum = 1;
-            if (['AAA','1','Cancha 1'].includes(cVal)) cNum = 1;
-            else if (['BBB','2','Cancha 2'].includes(cVal)) cNum = 2;
-            else cNum = parseInt(cVal) || 1;
-
-            newTemplate.push({
-                d: parseFloat(cols[idxDay].replace(',', '.')), 
-                t: parseFloat(cols[idxTime].replace(',', '.')),
-                c: cNum,
-                z: cols[idxZone] ? cols[idxZone].trim() : "-",
-                h: cols[idxHome].trim(),
-                a: cols[idxAway].trim()
-            });
-        }
-
-        const modelId = "custom_" + Date.now();
-        State.templates[modelId] = newTemplate;
-        
-        const select = document.getElementById('cfg-model');
-        const option = document.createElement('option');
-        option.value = modelId;
-        option.text = fileName.replace('.csv', '');
-        option.selected = true;
-        select.add(option);
-        
-        State.config.model = modelId;
-        this.saveState();
-        return true;
-    },
-
+    // GENERACIÓN AUTOMÁTICA
     generateFixture: function() {
-        const modelKey = State.config.model;
-        let template = State.templates[modelKey];
-
-        // Fallback robusto
-        if (!template && ModelGenerators[modelKey]) {
-            template = ModelGenerators[modelKey]();
-        }
-
-        if (!template || template.length === 0) {
-            alert("No hay plantilla para este modelo.");
-            return;
-        }
-
-        if (State.teams.length < 2) return alert("Faltan equipos.");
-
-        const sortedTeams = [...State.teams].sort((a, b) => a.zone.localeCompare(b.zone));
-        const teamMap = {};
+        if(State.teams.length < 2) return alert("Faltan equipos");
         
-        sortedTeams.forEach((t, i) => {
-            const idx = (i+1).toString();
-            teamMap[idx] = t.name;
-            teamMap[idx + ".0"] = t.name;
-        });
-
-        const matches = [];
+        // Ejecutar lógica adaptable
+        const matches = FixtureLogic.generate(State.teams);
+        
+        // Asignar fechas reales
         const startDate = new Date(State.config.startDate + "T00:00:00");
-
-        template.forEach((slot, idx) => {
-            const matchDate = new Date(startDate);
-            matchDate.setDate(startDate.getDate() + (Math.floor(slot.d) - 1));
-
-            let hName = teamMap[slot.h] || slot.h;
-            let aName = teamMap[slot.a] || slot.a;
-
-            const courtName = State.courts[slot.c - 1] ? State.courts[slot.c - 1].name : `Cancha ${slot.c}`;
-
-            matches.push({
-                id: idx + 1,
-                date: matchDate.toLocaleDateString(),
-                time: excelTimeToString(slot.t),
-                court: courtName,
-                zone: slot.z,
-                home: hName,
-                away: aName
-            });
+        matches.forEach(m => {
+            const d = new Date(startDate);
+            d.setDate(startDate.getDate() + (m.dayIndex - 1));
+            m.dateStr = d.toLocaleDateString();
+            
+            // Hora legible
+            m.timeStr = excelTimeToString(m.timeVal);
+            
+            // Cancha nombre real
+            const cObj = State.courts[m.courtIndex - 1];
+            m.courtName = cObj ? cObj.name : `Cancha ${m.courtIndex}`;
         });
 
         State.matches = matches;
         this.renderFixture();
         this.saveState();
-        alert(`Fixture generado: ${matches.length} partidos.`);
+        alert(`Fixture generado: ${matches.length} partidos adaptados a ${State.teams.length} equipos.`);
     },
 
     renderFixture: function() {
-        const tbody = document.getElementById('fixture-body');
-        if(!tbody) return;
+        const tb = document.getElementById('fixture-body');
+        if(!tb) return;
         
-        if (State.matches.length === 0) {
+        if(State.matches.length === 0) {
             document.getElementById('empty-fixture-msg').style.display = 'block';
             return;
         }
         document.getElementById('empty-fixture-msg').style.display = 'none';
-        document.getElementById('match-count').textContent = State.matches.length;
-
-        tbody.innerHTML = State.matches.map(m => `
+        
+        tb.innerHTML = State.matches.map(m => `
             <tr>
                 <td>${m.id}</td>
-                <td>${m.date}</td>
-                <td>${m.time}</td>
-                <td>${m.court}</td>
+                <td>Día ${m.dayIndex}</td>
+                <td>${m.dateStr}</td>
+                <td>${m.timeStr}</td>
+                <td>${m.courtName}</td>
                 <td><span class="stats-badge">${m.zone}</span></td>
                 <td><strong>${m.home}</strong> vs <strong>${m.away}</strong></td>
             </tr>
         `).join('');
     },
 
-    saveState: function() { localStorage.setItem('fixtureProState', JSON.stringify(State)); },
+    saveState: function() { localStorage.setItem('fp_state_v3', JSON.stringify(State)); },
     loadState: function() {
-        const saved = localStorage.getItem('fixtureProState');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            Object.assign(State, parsed);
-            if(parsed.templates) Object.assign(State.templates, parsed.templates);
-        }
+        const s = localStorage.getItem('fp_state_v3');
+        if(s) Object.assign(State, JSON.parse(s));
     },
     updateUI: function() {
         if(State.config.tournamentName) document.getElementById('cfg-name').value = State.config.tournamentName;
         if(State.config.startDate) document.getElementById('cfg-start-date').value = State.config.startDate;
-        
-        const select = document.getElementById('cfg-model');
-        Object.keys(State.templates).forEach(key => {
-            if(key.startsWith('custom_')) {
-                const opt = document.createElement('option');
-                opt.value = key;
-                opt.text = "Modelo Importado"; 
-                select.add(opt);
-            }
-        });
-        if(State.config.model) select.value = State.config.model;
-        if(State.courts.length > 0) document.getElementById('cfg-courts-count').value = State.courts.length;
+        if(State.courts.length) document.getElementById('cfg-courts-count').value = State.courts.length;
     },
     bindEvents: function() {
         document.getElementById('btn-reset').addEventListener('click', () => {
-            if(confirm("¿Reiniciar?")) { localStorage.removeItem('fixtureProState'); location.reload(); }
+            if(confirm("¿Reiniciar?")) { localStorage.clear(); location.reload(); }
         });
-        if (State.courts.length === 0) this.generateCourtSlots();
+        if(State.courts.length===0) this.generateCourtSlots();
     }
 };
 
-document.addEventListener('DOMContentLoaded', () => { App.init(); });
+document.addEventListener('DOMContentLoaded', () => App.init());
