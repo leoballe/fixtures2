@@ -221,48 +221,34 @@
             </div>
         </section>
 
-        <!-- PASO 4: GENERACIÓN -->
+       <!-- PASO 4 -->
         <section id="step-4" class="panel">
             <header class="panel-header">
-                <h1>Fixture Generado</h1>
-                <p>Revisa el calendario resultante antes de exportar.</p>
+                <h1>Generación Automática</h1>
+                <p>El sistema adaptará el modelo a la cantidad de equipos cargados.</p>
             </header>
-
-            <div class="toolbar">
-                <button class="btn-primary" onclick="App.generateFixture()">
-                    <i class="fa-solid fa-rotate"></i> Generar / Regenerar
+            
+            <div class="toolbar" style="justify-content: center;">
+                <button class="btn-primary" onclick="App.generateFixture()" style="padding: 1rem 2rem; font-size: 1.1rem;">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Generar Fixture Inteligente
                 </button>
-                <div class="stats-badge">
-                    Partidos: <span id="match-count">0</span>
-                </div>
             </div>
 
-            <!-- Tabla de Resultados -->
-            <div class="table-container">
+            <div class="table-container" style="margin-top: 2rem;">
                 <table class="data-table" id="fixture-table">
                     <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Día</th>
-                            <th>Hora</th>
-                            <th>Cancha</th>
-                            <th>Zona</th>
-                            <th>Partido</th>
-                        </tr>
+                        <tr><th>#</th><th>Día</th><th>Fecha</th><th>Hora</th><th>Cancha</th><th>Zona</th><th>Partido</th></tr>
                     </thead>
-                    <tbody id="fixture-body">
-                        <!-- Se llena con JS -->
-                    </tbody>
+                    <tbody id="fixture-body"></tbody>
                 </table>
                 <div id="empty-fixture-msg" class="empty-state">
-                    <i class="fa-solid fa-clipboard-list"></i>
-                    <p>Presiona "Generar" para crear el fixture.</p>
+                    <p>Presiona el botón para generar.</p>
                 </div>
             </div>
 
             <div class="actions">
                 <button class="btn-secondary" onclick="App.goToStep(3)">Atrás</button>
-                <button class="btn-primary" onclick="App.goToStep(5)">Siguiente: Exportar</button>
+                <button class="btn-primary" onclick="App.goToStep(5)">Siguiente</button>
             </div>
         </section>
 
@@ -285,4 +271,5 @@
 <script src="app.js"></script>
 </body>
 </html>
+
 
