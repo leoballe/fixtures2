@@ -221,19 +221,61 @@
             </div>
         </section>
 
-        <!-- PASO 4: GENERACIÓN (Placeholder) -->
+        <!-- PASO 4: GENERACIÓN -->
         <section id="step-4" class="panel">
             <header class="panel-header">
-                <h1>Generación de Fixture</h1>
-                <p>Previsualización y ajustes finales.</p>
+                <h1>Fixture Generado</h1>
+                <p>Revisa el calendario resultante antes de exportar.</p>
             </header>
-            <div class="placeholder-box">
-                <i class="fa-solid fa-wand-magic-sparkles fa-3x"></i>
-                <p>Motor de generación en desarrollo...</p>
+
+            <div class="toolbar">
+                <button class="btn-primary" onclick="App.generateFixture()">
+                    <i class="fa-solid fa-rotate"></i> Generar / Regenerar
+                </button>
+                <div class="stats-badge">
+                    Partidos: <span id="match-count">0</span>
+                </div>
             </div>
+
+            <!-- Tabla de Resultados -->
+            <div class="table-container">
+                <table class="data-table" id="fixture-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Día</th>
+                            <th>Hora</th>
+                            <th>Cancha</th>
+                            <th>Zona</th>
+                            <th>Partido</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fixture-body">
+                        <!-- Se llena con JS -->
+                    </tbody>
+                </table>
+                <div id="empty-fixture-msg" class="empty-state">
+                    <i class="fa-solid fa-clipboard-list"></i>
+                    <p>Presiona "Generar" para crear el fixture.</p>
+                </div>
+            </div>
+
             <div class="actions">
                 <button class="btn-secondary" onclick="App.goToStep(3)">Atrás</button>
-                <button class="btn-primary" disabled>Generar PDF</button>
+                <button class="btn-primary" onclick="App.goToStep(5)">Siguiente: Exportar</button>
+            </div>
+        </section>
+
+        <!-- PASO 5: EXPORTAR (Placeholder) -->
+        <section id="step-5" class="panel">
+            <header class="panel-header">
+                <h1>Exportar Documento</h1>
+            </header>
+            <div class="placeholder-box">
+                <p>Aquí configuraremos la exportación a PDF.</p>
+            </div>
+            <div class="actions">
+                <button class="btn-secondary" onclick="App.goToStep(4)">Atrás</button>
             </div>
         </section>
 
@@ -243,3 +285,4 @@
 <script src="app.js"></script>
 </body>
 </html>
+
