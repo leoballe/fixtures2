@@ -1,6 +1,5 @@
 /**
- * FIXTURE PLANNER PRO v4.2 (Final Fix)
- * Corrección de errores de sintaxis y referencias.
+ * FIXTURE PLANNER PRO v5.0 (Clean Syntax)
  */
 
 // --- ESTADO GLOBAL ---
@@ -34,7 +33,7 @@ function excelTimeToString(fraction) {
     return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
 }
 
-// --- LÓGICA DE MODELOS ---
+// --- ENGINE ---
 const FixtureEngine = {
     model_8x3: {
         zones: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
@@ -44,11 +43,11 @@ const FixtureEngine = {
         ]
     },
 
-    generate: function(teams, config) {
+    generate: function(teams) {
         const matches = [];
         let matchId = 1;
 
-        // 1. ORGANIZAR EQUIPOS
+        // 1. Organizar Equipos
         const zoneMap = {};
         teams.forEach(t => {
             if (!zoneMap[t.zone]) zoneMap[t.zone] = [];
@@ -56,7 +55,7 @@ const FixtureEngine = {
         });
         const activeZones = Object.keys(zoneMap).sort();
 
-        // 2. FASE 1: ZONAS
+        // 2. Fase 1: Zonas
         activeZones.forEach((zChar) => {
             const teamList = zoneMap[zChar];
             const count = teamList.length;
@@ -71,7 +70,7 @@ const FixtureEngine = {
             }
         });
 
-        // 3. FASE 2: A1 / A2
+        // 3. Fase 2: A1 / A2
         const p2 = this.model_8x3.phase2_structure;
         p2.forEach(group => {
             const realSlots = group.slots.map(slotName => {
@@ -92,23 +91,22 @@ const FixtureEngine = {
             this.addMatch(matches, matchId++, dBase + 2, 0.4, 2, group.name, realSlots[2], realSlots[3]);
         });
 
-        // 4. FASE 3: LLAVES
+        // 4. Fase 3: Llaves
         this.generateBracket(matches, "Llave B (2dos)", ["2ºA","2ºB","2ºC","2ºD","2ºE","2ºF","2ºG","2ºH"], activeZones, 3);
         this.generateBracket(matches, "Llave C (3ros)", ["3ºA","3ºB","3ºC","3ºD","3ºE","3ºF","3ºG","3ºH"], activeZones, 3);
 
-        // 5. FINALES
+        // 5. Finales
         this.addMatch(matches, 900, 5, 0.7, 1, "Final", "1º Zona A1", "1º Zona A2");
         this.addMatch(matches, 901, 5, 0.7, 2, "3er Puesto", "2º Zona A1", "2º Zona A2");
         this.addMatch(matches, 902, 5, 0.4, 1, "5to Puesto", "3º Zona A1", "3º Zona A2");
         this.addMatch(matches, 903, 5, 0.4, 2, "7mo Puesto", "4º Zona A1", "4º Zona A2");
 
-        // Renumerar IDs
         matches.forEach((m, i) => m.id = i + 1);
         return matches;
     },
 
     createMatch: function(id, day, time, court, zone, home, away) {
-        return { id: id, date: "", dayIndex: day, timeVal: time, courtIndex: court, zone: zone, home: home, away: away };
+        return { id, date: "", dayIndex: day, timeVal: time, courtIndex: court, zone, home, away };
     },
 
     addMatch: function(list, id, day, time, courtIdx, zone, home, away) {
@@ -139,23 +137,15 @@ const FixtureEngine = {
     }
 };
 
-// --- APP CONTROLLER ---
+// --- APP ---
 const App = {
     init: function() {
-        console.log("Iniciando App...");
-        try {
-            this.loadState();
-            this.sanitizeData();
-            this.renderCourts();
-            this.renderTeams();
-            this.updateUI();
-            console.log("App lista.");
-        } catch (error) {
-            console.error("Error init:", error);
-            if (confirm("Error crítico. ¿Reiniciar datos?")) {
-                this.resetApp();
-            }
-        }
+        console.log("Init...");
+        this.loadState();
+        this.sanitizeData();
+        this.renderCourts();
+        this.renderTeams();
+        this.updateUI();
     },
 
     resetApp: function() {
@@ -164,8 +154,8 @@ const App = {
     },
 
     sanitizeData: function() {
-        let fixed = false;
         if (!Array.isArray(State.teams)) State.teams = [];
+        let fixed = false;
         State.teams.forEach(t => {
             if (!t.id) { t.id = safeId(); fixed = true; }
         });
@@ -210,7 +200,7 @@ const App = {
         if (daysInput) State.config.days = parseInt(daysInput.value) || 5;
 
         if (!State.config.name || !State.config.startDate) {
-            alert("Faltan datos obligatorios (Nombre, Fecha).");
+            alert("Falta Nombre o Fecha.");
             return false;
         }
         return true;
@@ -233,7 +223,7 @@ const App = {
             <div class="court-card">
                 <div class="court-header">
                     <span>${court.name}</span>
-                    <input type="text" value="${court.name}" onchange="State.courts[${i}].name=this.value;App.saveState()" style="width: 120px; padding: 4px;">
+                    <input type="text" value="${court.name}" onchange="State.courts[${i}].name=this.value;App.saveState()" style="width: 120px;">
                 </div>
             </div>
         `).join('');
@@ -269,14 +259,18 @@ const App = {
     },
 
     addManualTeam: function() {
-        const z = document.getElementById('manual-zone').value.toUpperCase();
-        const n = document.getElementById('manual-name').value;
-        if (!n) return alert("Nombre requerido");
+        const zInput = document.getElementById('manual-zone');
+        const nInput = document.getElementById('manual-name');
+        const z = zInput.value.toUpperCase();
+        const n = nInput.value;
+        
+        if (!n) return alert("Falta nombre.");
+        
         State.teams.push({ id: safeId(), zone: z || "?", name: n });
         State.teams.sort((a, b) => a.zone.localeCompare(b.zone));
         this.renderTeams();
         this.saveState();
-        document.getElementById('manual-name').value = "";
+        nInput.value = "";
     },
 
     clearTeams: function() {
@@ -294,9 +288,9 @@ const App = {
         const tb = document.getElementById('teams-body');
         document.getElementById('team-count').innerText = State.teams.length;
         if (!tb) return;
-        tb.innerHTML = "";
         
         if (State.teams.length === 0) {
+            tb.innerHTML = "";
             document.getElementById('teams-empty').style.display = 'block';
             return;
         }
@@ -312,19 +306,20 @@ const App = {
     },
 
     updateSummary: function() {
-        document.getElementById('summary-model').innerText = State.config.model;
-        document.getElementById('summary-teams').innerText = State.teams.length;
-        document.getElementById('summary-courts').innerText = State.courts.length;
+        const modelSpan = document.getElementById('summary-model');
+        const teamsSpan = document.getElementById('summary-teams');
+        const courtsSpan = document.getElementById('summary-courts');
+        if(modelSpan) modelSpan.innerText = State.config.model;
+        if(teamsSpan) teamsSpan.innerText = State.teams.length;
+        if(courtsSpan) courtsSpan.innerText = State.courts.length;
     },
 
     generateFixture: function() {
         if (State.teams.length === 0) return alert("Sin equipos.");
         const rawMatches = FixtureEngine.generate(State.teams, State.config);
         
-        // Manejo seguro de fechas
-        let dateParts = State.config.startDate.split('-'); // YYYY-MM-DD
+        let dateParts = State.config.startDate.split('-');
         if(dateParts.length !== 3) {
-             // Fallback a hoy si la fecha es inválida
              const today = new Date();
              dateParts = [today.getFullYear(), today.getMonth()+1, today.getDate()];
         }
@@ -340,7 +335,7 @@ const App = {
             const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
             const court = State.courts[m.courtIndex - 1] || { name: `Cancha ${m.courtIndex}` };
 
-            return { ...m, dateStr: d.toLocaleDateString(), timeStr: timeStr, courtName: court.name };
+            return { ...m, dateStr: d.toLocaleDateString(), timeStr, courtName: court.name };
         });
 
         this.renderFixture();
@@ -351,14 +346,12 @@ const App = {
     renderFixture: function() {
         const tb = document.getElementById('fixture-body');
         if (!tb) return;
-        tb.innerHTML = "";
-        
-        if (State.matches.length === 0) {
+        if(State.matches.length === 0) {
+            tb.innerHTML = "";
             document.getElementById('fixture-empty').style.display = 'block';
             return;
         }
         document.getElementById('fixture-empty').style.display = 'none';
-        
         tb.innerHTML = State.matches.map(m => `
             <tr>
                 <td>${m.id}</td><td>Día ${m.dayIndex}</td><td>${m.timeStr}</td><td>${m.courtName}</td>
