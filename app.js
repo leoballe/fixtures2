@@ -1,6 +1,6 @@
 /**
- * FIXTURE PLANNER PRO v2.1
- * Generación completa 52 partidos (Evita 8x3)
+ * FIXTURE PLANNER PRO v2.2
+ * Corrección de Caché y Generación Completa (52 Partidos)
  */
 
 // --- ESTADO GLOBAL ---
@@ -56,7 +56,6 @@ const ModelGenerators = {
             const base = zIdx * 3; // Offset de equipo
             rondas.forEach((r, rIdx) => {
                 // Cálculo simple para distribuir en D1/D2
-                // Esto es solo un default, el CSV manda si se carga
                 const globalMatch = (zIdx * 3) + rIdx + 1;
                 const dia = globalMatch <= 12 ? 1 : 2;
                 const hora = 0.375 + (rIdx * 0.05); 
@@ -69,7 +68,6 @@ const ModelGenerators = {
         // --- FASE 2: ZONAS A1 / A2 (12 Partidos) ---
         // A1: 1° de A, D, E, H
         // A2: 1° de B, C, F, G
-        // Usamos placeholders de texto para simular la clasificación
         const fase2 = [
             // Ronda 1
             {z:'A1', h:'1ºA', a:'1ºD'}, {z:'A1', h:'1ºE', a:'1ºH'},
@@ -130,10 +128,11 @@ const App = {
         this.renderTeams();
         this.updateUI(); 
         
-        // Inicializar templates por defecto
-        if (!State.templates["8x3_normal"]) {
-            State.templates["8x3_normal"] = ModelGenerators["8x3_normal"]();
-        }
+        // --- CORRECCIÓN CRÍTICA ---
+        // Forzamos la regeneración del template por defecto con la lógica nueva
+        // sobrescribiendo cualquier versión vieja guardada en localStorage.
+        State.templates["8x3_normal"] = ModelGenerators["8x3_normal"]();
+        this.saveState(); // Guardamos inmediatamente el template actualizado
     },
 
     goToStep: function(stepNumber) {
@@ -352,6 +351,7 @@ const App = {
         const modelKey = State.config.model;
         let template = State.templates[modelKey];
 
+        // Fallback robusto
         if (!template && ModelGenerators[modelKey]) {
             template = ModelGenerators[modelKey]();
         }
