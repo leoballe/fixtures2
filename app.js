@@ -1,13 +1,13 @@
 /**
  * FIXTURE PLANNER PRO v1.0
- * Arquitectura modular limpia.
+ * Desarrollo desde cero.
  */
 
-// --- ESTADO GLOBAL (Fuente de Verdad) ---
+// --- ESTADO GLOBAL ---
 const State = {
     config: {
         tournamentName: "",
-        model: "", // 8x3_normal, 4x6_sembrado, etc.
+        model: "", // 8x3_normal, etc.
         startDate: "",
         daysCount: 5,
         matchDuration: 60,
@@ -16,8 +16,8 @@ const State = {
         doubleBronze: false,
         courtsCount: 2
     },
-    courts: [], // Array de objetos {id, name, openTime, closeTime, hasBreak, ...}
-    teams: [],
+    courts: [], // Array de objetos {id, name, timeStart, timeEnd, hasBreak}
+    teams: [], // Array de objetos {id, name, zone}
     matches: []
 };
 
@@ -27,22 +27,24 @@ const App = {
         console.log("Iniciando Fixture Planner Pro...");
         this.loadState(); // Cargar persistencia
         this.bindEvents();
-        this.renderCourts(); // Render inicial si hay datos
-        this.updateUI(); // Sincronizar inputs con estado
+        this.renderCourts(); 
+        this.renderTeams(); // Renderizar equipos si existen
+        this.updateUI(); 
     },
 
     // --- NAVEGACIÓN ---
     goToStep: function(stepNumber) {
-        // Validaciones antes de avanzar
         if (stepNumber === 2 && !this.validateStep1()) return;
-        if (stepNumber === 3) this.saveCourtsState(); // Guardar paso 2 al salir
+        if (stepNumber === 3) this.saveCourtsState();
+        if (stepNumber === 4 && State.teams.length < 2) {
+            alert("Por favor carga al menos 2 equipos antes de generar el fixture.");
+            return;
+        }
 
-        // Actualizar UI Paneles
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         const targetPanel = document.getElementById(`step-${stepNumber}`);
         if(targetPanel) targetPanel.classList.add('active');
         
-        // Actualizar UI Sidebar
         document.querySelectorAll('.step-btn').forEach(btn => {
             btn.classList.remove('active');
             if(btn.dataset.step == stepNumber) {
@@ -51,7 +53,7 @@ const App = {
             }
         });
 
-        this.saveState(); // Persistir todo
+        this.saveState();
     },
 
     // --- PASO 1: CONFIGURACIÓN ---
@@ -65,7 +67,6 @@ const App = {
             return false;
         }
         
-        // Guardar en State
         State.config.tournamentName = name;
         State.config.model = model;
         State.config.startDate = date;
@@ -82,7 +83,7 @@ const App = {
     // --- PASO 2: CANCHAS ---
     generateCourtSlots: function() {
         const count = parseInt(document.getElementById('cfg-courts-count').value) || 1;
-        State.courts = []; // Reset
+        State.courts = []; 
 
         for (let i = 1; i <= count; i++) {
             State.courts.push({
@@ -143,13 +144,156 @@ const App = {
 
     updateCourt: function(index, field, value) {
         State.courts[index][field] = value;
-        if (field === 'hasBreak') this.renderCourts(); // Re-render para mostrar/ocultar inputs
-        // No guardamos state aquí para rendimiento, se guarda al salir del paso
+        if (field === 'hasBreak') this.renderCourts();
     },
 
     saveCourtsState: function() {
-        // Método explícito para asegurar guardado al avanzar
         this.saveState();
+    },
+
+    // --- PASO 3: EQUIPOS ---
+    
+    // Función para manejar la subida del CSV
+    handleCsvUpload: function(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const text = e.target.result;
+            App.processCsvData(text);
+        };
+        reader.readAsText(file);
+        
+        // Resetear input para permitir recargar el mismo archivo
+        event.target.value = ''; 
+    },
+
+    processCsvData: function(csvText) {
+        const lines = csvText.split(/\r\n|\n/);
+        // Detectar si hay encabezado (asumimos que si la primera línea tiene 'Zona' o 'Equipo' es encabezado)
+        let startIndex = 0;
+        if (lines[0].toLowerCase().includes('zona') || lines[0].toLowerCase().includes('equipo')) {
+            startIndex = 1;
+        }
+
+        let addedCount = 0;
+
+        for (let i = startIndex; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            // Detectar delimitador: probamos punto y coma, luego coma
+            let parts = line.split(';');
+            if (parts.length < 2) parts = line.split(',');
+
+            // Esperamos formato: Zona;Equipo o Equipo;Zona (pero el ejemplo del usuario es Zona;Equipos)
+            // Asumimos orden: Zona, Nombre
+            let zone = parts[0] ? parts[0].trim().toUpperCase() : '?';
+            let name = parts[1] ? parts[1].trim() : '';
+
+            // Validación básica
+            if (name) {
+                State.teams.push({
+                    id: Date.now() + Math.random().toString(36).substr(2, 5),
+                    name: name,
+                    zone: zone
+                });
+                addedCount++;
+            }
+        }
+
+        if (addedCount > 0) {
+            this.renderTeams();
+            this.saveState();
+            alert(`Se importaron ${addedCount} equipos correctamente.`);
+        } else {
+            alert("No se pudieron leer equipos. Verifica que el archivo CSV tenga el formato: Zona;Nombre");
+        }
+    },
+
+    addManualTeam: function() {
+        const nameInput = document.getElementById('manual-team-name');
+        const zoneInput = document.getElementById('manual-team-zone');
+        
+        const name = nameInput.value.trim();
+        const zone = zoneInput.value.trim().toUpperCase();
+
+        if (!name) {
+            alert("El nombre del equipo es obligatorio.");
+            return;
+        }
+
+        State.teams.push({
+            id: Date.now() + Math.random().toString(36).substr(2, 5),
+            name: name,
+            zone: zone || "?" // Zona ? si no se especifica
+        });
+
+        nameInput.value = "";
+        zoneInput.value = "";
+        nameInput.focus();
+
+        this.renderTeams();
+        this.saveState();
+    },
+
+    deleteTeam: function(id) {
+        if(confirm("¿Eliminar este equipo?")) {
+            State.teams = State.teams.filter(t => t.id !== id);
+            this.renderTeams();
+            this.saveState();
+        }
+    },
+
+    deleteAllTeams: function() {
+        if (State.teams.length === 0) return;
+        if(confirm("¿Estás seguro de BORRAR TODOS los equipos? Esta acción no se puede deshacer.")) {
+            State.teams = [];
+            this.renderTeams();
+            this.saveState();
+        }
+    },
+
+    renderTeams: function() {
+        const tbody = document.getElementById('teams-list-body');
+        const countSpan = document.getElementById('team-count');
+        const emptyMsg = document.getElementById('empty-teams-msg');
+        
+        if (!tbody) return;
+
+        tbody.innerHTML = "";
+        countSpan.textContent = State.teams.length;
+
+        if (State.teams.length === 0) {
+            emptyMsg.style.display = "block";
+            document.getElementById('teams-table').style.display = "none";
+            return;
+        }
+
+        emptyMsg.style.display = "none";
+        document.getElementById('teams-table').style.display = "table";
+
+        // Ordenar por Zona y luego por Nombre para mejor visualización
+        const sortedTeams = [...State.teams].sort((a, b) => {
+            if (a.zone === b.zone) return a.name.localeCompare(b.name);
+            return a.zone.localeCompare(b.zone);
+        });
+
+        sortedTeams.forEach((team, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${index + 1}</td>
+                <td><span class="stats-badge" style="background:var(--primary); color:white">${team.zone}</span></td>
+                <td><strong>${team.name}</strong></td>
+                <td style="text-align: right;">
+                    <button class="btn-icon" onclick="App.deleteTeam('${team.id}')" title="Eliminar">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
     },
 
     // --- PERSISTENCIA ---
@@ -170,7 +314,7 @@ const App = {
     },
 
     updateUI: function() {
-        // Restaurar valores en Paso 1
+        // Restaurar Paso 1
         if(State.config.tournamentName) document.getElementById('cfg-name').value = State.config.tournamentName;
         if(State.config.model) document.getElementById('cfg-model').value = State.config.model;
         if(State.config.startDate) document.getElementById('cfg-start-date').value = State.config.startDate;
@@ -179,14 +323,13 @@ const App = {
         document.getElementById('cfg-has-loser-bracket').checked = State.config.hasLoserBracket;
         document.getElementById('cfg-double-bronze').checked = State.config.doubleBronze;
         
-        // Restaurar conteo de canchas si existe
+        // Restaurar Paso 2
         if(State.courts.length > 0) {
             document.getElementById('cfg-courts-count').value = State.courts.length;
         }
     },
 
     bindEvents: function() {
-        // Botón Reiniciar
         document.getElementById('btn-reset').addEventListener('click', () => {
             if(confirm("¿Estás seguro de borrar toda la configuración actual?")) {
                 localStorage.removeItem('fixtureProState');
@@ -194,7 +337,6 @@ const App = {
             }
         });
         
-        // Inicializar canchas por defecto si está vacío
         if (State.courts.length === 0) {
             this.generateCourtSlots();
         }
