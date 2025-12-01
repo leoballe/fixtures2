@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
     
-    <!-- Librerías para Exportación -->
+    <!-- Librerías para Exportación (Las usaremos más adelante) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
@@ -60,7 +60,7 @@
         <section id="step-1" class="panel active">
             <header class="panel-header">
                 <h1>Configuración del Torneo</h1>
-                <p>Define las variables principales del evento.</p>
+                <p>Define las variables principales según tu lista de requerimientos.</p>
             </header>
 
             <div class="form-grid">
@@ -97,7 +97,7 @@
                 <div class="form-group">
                     <label>Duración Partido (minutos)</label>
                     <input type="number" id="cfg-match-duration" value="60" step="5">
-                    <small>Incluye tiempo de juego + descanso</small>
+                    <small>Incluye tiempo de juego + descanso/calentamiento</small>
                 </div>
 
                 <div class="form-group">
@@ -106,7 +106,7 @@
                 </div>
             </div>
 
-            <!-- Variables Booleanas -->
+            <!-- Variables Booleanas (Checkboxes) -->
             <div class="options-grid">
                 <label class="toggle">
                     <input type="checkbox" id="cfg-has-loser-bracket">
@@ -117,7 +117,7 @@
                 <label class="toggle">
                     <input type="checkbox" id="cfg-double-bronze">
                     <span class="slider"></span>
-                    <span class="label-text">Doble Bronce</span>
+                    <span class="label-text">Doble Bronce (3er puesto compartido)</span>
                 </label>
                 
                 <label class="toggle">
@@ -159,19 +159,81 @@
             </div>
         </section>
 
-        <!-- PASO 3: EQUIPOS (Placeholder) -->
+        <!-- PASO 3: EQUIPOS Y ZONAS -->
         <section id="step-3" class="panel">
             <header class="panel-header">
                 <h1>Gestión de Equipos</h1>
-                <p>Carga los equipos participantes.</p>
+                <p>Carga los equipos manualmente o importa un archivo CSV (formato: Zona;Equipo).</p>
             </header>
-            <div class="placeholder-box">
-                <i class="fa-solid fa-users-gear fa-3x"></i>
-                <p>Módulo de Equipos en desarrollo...</p>
+
+            <!-- Barra de Herramientas -->
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <input type="file" id="csv-upload" accept=".csv" hidden onchange="App.handleCsvUpload(event)">
+                    <button class="btn-secondary" onclick="document.getElementById('csv-upload').click()">
+                        <i class="fa-solid fa-file-csv"></i> Importar CSV
+                    </button>
+                    <button class="btn-danger-outline" onclick="App.deleteAllTeams()">
+                        <i class="fa-solid fa-trash-can"></i> Borrar Todos
+                    </button>
+                </div>
+                <div class="stats-badge">
+                    Total: <span id="team-count">0</span> equipos
+                </div>
             </div>
+
+            <!-- Carga Manual -->
+            <div class="manual-entry-box">
+                <h3>Agregar Equipo Manualmente</h3>
+                <div class="input-group">
+                    <input type="text" id="manual-team-zone" placeholder="Zona (Ej: A)" style="width: 100px;">
+                    <input type="text" id="manual-team-name" placeholder="Nombre del Equipo (Ej: Club Huergo)" style="flex: 1;">
+                    <button class="btn-primary" onclick="App.addManualTeam()">
+                        <i class="fa-solid fa-plus"></i> Agregar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tabla de Equipos -->
+            <div class="table-container">
+                <table class="data-table" id="teams-table">
+                    <thead>
+                        <tr>
+                            <th width="10%">#</th>
+                            <th width="20%">Zona</th>
+                            <th>Nombre del Equipo</th>
+                            <th width="10%" style="text-align: right;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="teams-list-body">
+                        <!-- Filas generadas dinámicamente -->
+                    </tbody>
+                </table>
+                <div id="empty-teams-msg" class="empty-state">
+                    <i class="fa-solid fa-users-slash"></i>
+                    <p>No hay equipos cargados.</p>
+                </div>
+            </div>
+
             <div class="actions">
                 <button class="btn-secondary" onclick="App.goToStep(2)">Atrás</button>
-                <button class="btn-primary" disabled>Próximamente...</button>
+                <button class="btn-primary" onclick="App.goToStep(4)">Siguiente: Generar</button>
+            </div>
+        </section>
+
+        <!-- PASO 4: GENERACIÓN (Placeholder) -->
+        <section id="step-4" class="panel">
+            <header class="panel-header">
+                <h1>Generación de Fixture</h1>
+                <p>Previsualización y ajustes finales.</p>
+            </header>
+            <div class="placeholder-box">
+                <i class="fa-solid fa-wand-magic-sparkles fa-3x"></i>
+                <p>Motor de generación en desarrollo...</p>
+            </div>
+            <div class="actions">
+                <button class="btn-secondary" onclick="App.goToStep(3)">Atrás</button>
+                <button class="btn-primary" disabled>Generar PDF</button>
             </div>
         </section>
 
