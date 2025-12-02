@@ -1,18 +1,18 @@
 /**
- * FIXTURE PLANNER PRO v3.1 (Base v3.0 + PDF Mejorado)
- * Generación Adaptativa + Exportación Profesional por Días
+ * FIXTURE PLANNER PRO v5.2 (Lógica 64 Partidos)
+ * Incluye lógica para Llave de Perdedores
  */
 
 // --- ESTADO GLOBAL ---
 const State = {
     config: {
-        tournamentName: "",
-        model: "8x3_adaptable", // Único modelo inteligente
+        name: "",
+        model: "8x3_normal",
         startDate: "",
-        daysCount: 5,
+        days: 5,
         matchDuration: 60,
         minRest: 60,
-        hasLoserBracket: false,
+        hasLoser: false, // Esta variable controla si son 56 o 64 partidos
         doubleBronze: false,
         courtsCount: 2
     },
@@ -22,7 +22,9 @@ const State = {
 };
 
 // --- UTILS ---
-function safeId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
+function safeId() {
+    return "id_" + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
 
 function excelTimeToString(fraction) {
     if (!fraction || isNaN(fraction)) return "09:00";
@@ -32,407 +34,520 @@ function excelTimeToString(fraction) {
     return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
 }
 
-// --- LÓGICA DE NEGOCIO "HARDCODEADA" PERO ADAPTABLE ---
-const FixtureLogic = {
-    // Definición de la estructura ideal para 24 equipos (8 Zonas x 3)
-    structure24: {
-        zones: ['A','B','C','D','E','F','G','H'],
-        phase2_matches: [
-            // A1 (1ros de A, D, E, H)
-            { z: "A1", h: "1ºA", a: "1ºD" }, { z: "A1", h: "1ºE", a: "1ºH" },
-            { z: "A1", h: "1ºA", a: "1ºE" }, { z: "A1", h: "1ºD", a: "1ºH" },
-            { z: "A1", h: "1ºA", a: "1ºH" }, { z: "A1", h: "1ºD", a: "1ºE" },
-            // A2 (1ros de B, C, F, G)
-            { z: "A2", h: "1ºB", a: "1ºC" }, { z: "A2", h: "1ºF", a: "1ºG" },
-            { z: "A2", h: "1ºB", a: "1ºF" }, { z: "A2", h: "1ºC", a: "1ºG" },
-            { z: "A2", h: "1ºB", a: "1ºG" }, { z: "A2", h: "1ºC", a: "1ºF" }
-        ],
-        // Llaves B (2dos) y C (3ros) se calculan por cruces estándar
+// --- LÓGICA MATEMÁTICA DEL FIXTURE ---
+const FixtureEngine = {
+    // Estructura base para Fase 2 (Grupos A1 y A2)
+    model_8x3: {
+        phase2_structure: [
+            { name: "Zona A1", slots: ["1ºA", "1ºD", "1ºE", "1ºH"] },
+            { name: "Zona A2", slots: ["1ºB", "1ºC", "1ºF", "1ºG"] }
+        ]
     },
 
-    generate: function(teams) {
+    generate: function(teams, config) {
         const matches = [];
-        let matchId = 1;
+        let matchId = 1; // Contador de ID de partido (1, 2, 3...)
 
-        // 1. ORGANIZAR EQUIPOS EN ZONAS REALES
+        // 1. ORGANIZAR EQUIPOS EN ZONAS
         const zoneMap = {};
         teams.forEach(t => {
             if (!zoneMap[t.zone]) zoneMap[t.zone] = [];
             zoneMap[t.zone].push(t);
         });
-        
-        const activeZones = Object.keys(zoneMap).sort(); // Ej: ['A', 'B', 'C'...]
+        const activeZones = Object.keys(zoneMap).sort();
 
-        // --- FASE 1: GRUPOS (Todos contra todos en cada zona) ---
-        activeZones.forEach(zone => {
-            const zoneTeams = zoneMap[zone];
-            const count = zoneTeams.length;
-            
-            // Lógica para zona de 3
+        // -----------------------------------------------------
+        // FASE 1: ZONAS (Partidos de grupo)
+        // -----------------------------------------------------
+        activeZones.forEach((zChar) => {
+            const teamList = zoneMap[zChar];
+            const count = teamList.length;
+
+            // Si son 3 equipos: 3 partidos (Round Robin)
             if (count === 3) {
-                matches.push(this.createMatch(matchId++, 1, 0.375, 1, `Zona ${zone}`, zoneTeams[0].name, zoneTeams[1].name)); // 1vs2
-                matches.push(this.createMatch(matchId++, 1, 0.375, 1, `Zona ${zone}`, zoneTeams[1].name, zoneTeams[2].name)); // 2vs3
-                matches.push(this.createMatch(matchId++, 2, 0.375, 1, `Zona ${zone}`, zoneTeams[2].name, zoneTeams[0].name)); // 3vs1
+                this.addMatch(matches, matchId++, 1, 0.375, 1, `Zona ${zChar}`, teamList[0].name, teamList[1].name);
+                this.addMatch(matches, matchId++, 1, 0.45, 1, `Zona ${zChar}`, teamList[1].name, teamList[2].name);
+                this.addMatch(matches, matchId++, 2, 0.375, 1, `Zona ${zChar}`, teamList[2].name, teamList[0].name);
             } 
-            // Lógica para zona de 2 (Ida y Vuelta) - Caso 20 equipos
+            // Si son 2 equipos: 2 partidos (Ida y Vuelta)
             else if (count === 2) {
-                matches.push(this.createMatch(matchId++, 1, 0.375, 1, `Zona ${zone}`, zoneTeams[0].name, zoneTeams[1].name)); // Ida
-                matches.push(this.createMatch(matchId++, 2, 0.375, 1, `Zona ${zone}`, zoneTeams[1].name, zoneTeams[0].name)); // Vuelta
+                this.addMatch(matches, matchId++, 1, 0.375, 1, `Zona ${zChar}`, teamList[0].name, teamList[1].name);
+                this.addMatch(matches, matchId++, 2, 0.375, 1, `Zona ${zChar}`, teamList[1].name, teamList[0].name);
             }
         });
 
-        // --- FASE 2: CLASIFICACIÓN A1 / A2 ---
-        const slotsA1 = ["1ºA", "1ºD", "1ºE", "1ºH"];
-        const slotsA2 = ["1ºB", "1ºC", "1ºF", "1ºG"];
+        // -----------------------------------------------------
+        // FASE 2: GRUPOS A1 / A2 (Del 1º al 8º puesto general)
+        // -----------------------------------------------------
+        const p2 = this.model_8x3.phase2_structure;
+        p2.forEach(group => {
+            const realSlots = group.slots.map(slotName => {
+                const zoneReq = slotName.charAt(2); // La letra de la zona (A, B...)
+                if (activeZones.includes(zoneReq)) return slotName;
+                return "Mejor 2º"; // Si la zona no existe (ej: H en torneo de 20 equipos)
+            });
 
-        // Adaptación de slots si faltan zonas
-        if (!activeZones.includes('H')) {
-            const idx = slotsA1.indexOf("1ºH");
-            if(idx !== -1) slotsA1[idx] = "Mejor 2º";
-        }
-        if (!activeZones.includes('G')) {
-            const idx = slotsA2.indexOf("1ºG");
-            if(idx !== -1) slotsA2[idx] = "2do Mejor 2º";
-        }
+            const dBase = 3; // Empiezan el Día 3
+            // Fecha 1
+            this.addMatch(matches, matchId++, dBase, 0.4, 1, group.name, realSlots[0], realSlots[3]);
+            this.addMatch(matches, matchId++, dBase, 0.4, 2, group.name, realSlots[1], realSlots[2]);
+            // Fecha 2
+            this.addMatch(matches, matchId++, dBase + 1, 0.4, 1, group.name, realSlots[0], realSlots[2]);
+            this.addMatch(matches, matchId++, dBase + 1, 0.4, 2, group.name, realSlots[3], realSlots[1]);
+            // Fecha 3
+            this.addMatch(matches, matchId++, dBase + 2, 0.4, 1, group.name, realSlots[0], realSlots[1]);
+            this.addMatch(matches, matchId++, dBase + 2, 0.4, 2, group.name, realSlots[2], realSlots[3]);
+        });
 
-        // Generar partidos A1 (Todos contra todos - 3 fechas)
-        this.generateGroupMatches(matches, "Zona A1", slotsA1, 3); // Día 3 inicio
-        this.generateGroupMatches(matches, "Zona A2", slotsA2, 3);
+        // -----------------------------------------------------
+        // FASE 3: LLAVES (Del 9º al 24º puesto)
+        // Aquí es donde aplica el botón "Llave de Perdedores"
+        // -----------------------------------------------------
+        
+        // Llave B (Segundos de zona)
+        this.generateBracket(matches, "Llave B (2dos)", 
+            ["2ºA","2ºB","2ºC","2ºD","2ºE","2ºF","2ºG","2ºH"], 
+            activeZones, 3, config.hasLoser);
+        
+        // Llave C (Terceros de zona)
+        this.generateBracket(matches, "Llave C (3ros)", 
+            ["3ºA","3ºB","3ºC","3ºD","3ºE","3ºF","3ºG","3ºH"], 
+            activeZones, 3, config.hasLoser);
 
-        // --- FASE 3: LLAVES ---
-        this.generateBracket(matches, "Llave B (2dos)", ["2ºA","2ºB","2ºC","2ºD","2ºE","2ºF","2ºG","2ºH"], activeZones, 3);
-        this.generateBracket(matches, "Llave C (3ros)", ["3ºA","3ºB","3ºC","3ºD","3ºE","3ºF","3ºG","3ºH"], activeZones, 3);
+        // -----------------------------------------------------
+        // FASE 4: FINALES A1/A2 (Del 1º al 8º puesto)
+        // -----------------------------------------------------
+        // Como ya generamos muchos partidos en las llaves, usamos IDs altos 
+        // o dejamos que el sistema los renumere al final.
+        this.addMatch(matches, 0, 5, 0.7, 1, "Final", "1º Zona A1", "1º Zona A2");
+        this.addMatch(matches, 0, 5, 0.7, 2, "3er Puesto", "2º Zona A1", "2º Zona A2");
+        this.addMatch(matches, 0, 5, 0.4, 1, "5to Puesto", "3º Zona A1", "3º Zona A2");
+        this.addMatch(matches, 0, 5, 0.4, 2, "7mo Puesto", "4º Zona A1", "4º Zona A2");
 
-        // --- FASE 4: FINALES (1-8) ---
-        // Día 5
-        matches.push(this.createMatch(900, 5, 0.5, 1, "Final", "1º Zona A1", "1º Zona A2"));
-        matches.push(this.createMatch(901, 5, 0.5, 2, "3er Puesto", "2º Zona A1", "2º Zona A2"));
-        matches.push(this.createMatch(902, 5, 0.4, 1, "5to Puesto", "3º Zona A1", "3º Zona A2"));
-        matches.push(this.createMatch(903, 5, 0.4, 2, "7mo Puesto", "4º Zona A1", "4º Zona A2"));
-
-        // Reordenar IDs consecutivos para que se vean bien
+        // RENUMERACIÓN FINAL: IDs consecutivos del 1 al 64
         matches.forEach((m, i) => m.id = i + 1);
         
         return matches;
     },
 
+    // Función auxiliar para crear el objeto partido
     createMatch: function(id, day, time, court, zone, home, away) {
         return {
             id: id,
-            date: "", // Se calculará después
-            dayIndex: day, // 1-5
-            timeVal: time, // decimal excel
-            courtIndex: court, // 1-n
+            date: "", 
+            dayIndex: day, 
+            timeVal: time, 
+            courtIndex: court, 
             zone: zone,
             home: home,
             away: away
         };
     },
 
-    generateGroupMatches: function(matchesArray, zoneName, teams, startDay) {
-        // F1
-        matchesArray.push(this.createMatch(0, startDay, 0.375, 1, zoneName, teams[0], teams[3]));
-        matchesArray.push(this.createMatch(0, startDay, 0.375, 2, zoneName, teams[1], teams[2]));
-        // F2
-        matchesArray.push(this.createMatch(0, startDay+1, 0.375, 1, zoneName, teams[0], teams[2]));
-        matchesArray.push(this.createMatch(0, startDay+1, 0.375, 2, zoneName, teams[3], teams[1]));
-        // F3
-        matchesArray.push(this.createMatch(0, startDay+2, 0.375, 1, zoneName, teams[0], teams[1]));
-        matchesArray.push(this.createMatch(0, startDay+2, 0.375, 2, zoneName, teams[2], teams[3]));
+    // Agrega partido a la lista global
+    addMatch: function(list, id, day, time, courtIdx, zone, home, away) {
+        list.push(this.createMatch(id, day, time, courtIdx, zone, home, away));
     },
 
-    generateBracket: function(matchesArray, zoneName, slots, activeZones, startDay) {
+    // Generador de Llaves Eliminatorias
+    generateBracket: function(matchesArray, zoneName, slots, activeZones, startDay, withLoserBracket) {
+        // Filtramos las zonas que no existen (se convierten en BYE)
         const validSlots = slots.map(s => {
-            const zoneChar = s.slice(-1); // Última letra "A" de "2ºA"
+            const zoneChar = s.slice(-1);
             return activeZones.includes(zoneChar) ? s : "BYE";
         });
 
-        // Cuartos (Día 3)
+        // --- CUARTOS DE FINAL (Ronda 1) ---
+        // 4 Partidos: A vs D, B vs C, E vs H, F vs G
         const qf = [
-            {h: validSlots[0], a: validSlots[3]}, // A vs D
-            {h: validSlots[1], a: validSlots[2]}, // B vs C
-            {h: validSlots[4], a: validSlots[7]}, // E vs H
-            {h: validSlots[5], a: validSlots[6]}  // F vs G
+            { h: validSlots[0], a: validSlots[3] },
+            { h: validSlots[1], a: validSlots[2] },
+            { h: validSlots[4], a: validSlots[7] },
+            { h: validSlots[5], a: validSlots[6] }
         ];
 
         qf.forEach((m, i) => {
-            if (m.h === "BYE" || m.a === "BYE") return; 
-            matchesArray.push(this.createMatch(0, startDay, 0.5 + (i*0.05), 1, zoneName + " (4tos)", m.h, m.a));
+            // Si hay un BYE, no generamos partido
+            if (m.h === "BYE" || m.a === "BYE") return;
+            this.addMatch(matchesArray, 0, startDay, 0.5 + (i * 0.05), 1, zoneName + " (4tos)", m.h, m.a);
         });
 
-        // Semis y Finales
-        matchesArray.push(this.createMatch(0, startDay+1, 0.6, 1, zoneName + " (Semi)", "Ganador Q1", "Ganador Q2"));
-        matchesArray.push(this.createMatch(0, startDay+1, 0.6, 2, zoneName + " (Semi)", "Ganador Q3", "Ganador Q4"));
-        matchesArray.push(this.createMatch(0, startDay+2, 0.7, 1, zoneName + " (Final)", "Ganador S1", "Ganador S2"));
+        // --- SEMIFINALES GANADORES (Ronda 2) ---
+        // 2 Partidos
+        this.addMatch(matchesArray, 0, startDay + 1, 0.6, 1, zoneName + " (Semi Gan)", "Ganador Q1", "Ganador Q2");
+        this.addMatch(matchesArray, 0, startDay + 1, 0.6, 2, zoneName + " (Semi Gan)", "Ganador Q3", "Ganador Q4");
+
+        // --- SEMIFINALES PERDEDORES (Ronda 2) - SOLO SI ESTÁ ACTIVADO ---
+        if (withLoserBracket) {
+            // 2 Partidos extra
+            this.addMatch(matchesArray, 0, startDay + 1, 0.5, 1, zoneName + " (Semi Perd)", "Perdedor Q1", "Perdedor Q2");
+            this.addMatch(matchesArray, 0, startDay + 1, 0.5, 2, zoneName + " (Semi Perd)", "Perdedor Q3", "Perdedor Q4");
+        }
+
+        // --- FINALES (Ronda 3) ---
+        // Final de la Llave (Definición del mejor puesto de este grupo)
+        this.addMatch(matchesArray, 0, startDay + 2, 0.7, 1, zoneName + " (Final)", "Ganador Semi G1", "Ganador Semi G2");
+        
+        // 3er Puesto de la llave
+        this.addMatch(matchesArray, 0, startDay + 2, 0.7, 2, zoneName + " (3er)", "Perdedor Semi G1", "Perdedor Semi G2");
+
+        // --- FINALES DE PERDEDORES (Ronda 3) - SOLO SI ESTÁ ACTIVADO ---
+        if (withLoserBracket) {
+            // Final de Perdedores (Definición de puestos intermedios)
+            this.addMatch(matchesArray, 0, startDay + 2, 0.5, 1, zoneName + " (Final Perd)", "Ganador Semi P1", "Ganador Semi P2");
+            // Último puesto de la llave
+            this.addMatch(matchesArray, 0, startDay + 2, 0.5, 2, zoneName + " (7mo)", "Perdedor Semi P1", "Perdedor Semi P2");
+        }
     }
 };
 
-// --- APP ---
+// --- CONTROLADOR DE LA APLICACIÓN ---
 const App = {
     init: function() {
-        this.loadState();
-        this.bindEvents();
-        this.renderCourts(); 
-        this.renderTeams();
-        this.updateUI(); 
+        console.log("Iniciando App...");
+        this.loadState();     // Carga datos guardados
+        this.sanitizeData();  // Arregla datos corruptos
+        this.renderCourts();  // Dibuja canchas
+        this.renderTeams();   // Dibuja equipos
+        this.updateUI();      // Pone los valores en los inputs
     },
 
+    // Si hay datos corruptos (sin ID), los arregla
+    sanitizeData: function() {
+        if (!Array.isArray(State.teams)) State.teams = [];
+        let fixed = false;
+        State.teams.forEach(t => {
+            if (!t.id) { t.id = safeId(); fixed = true; }
+        });
+        if (fixed) this.saveState();
+    },
+
+    resetApp: function() {
+        localStorage.removeItem('fp_pro_v1');
+        location.reload();
+    },
+
+    // --- NAVEGACIÓN ---
     goToStep: function(n) {
-        if (n===2 && !this.validateStep1()) return;
-        if (n===3) this.saveCourtsState();
-        if (n===4 && State.teams.length < 2) return alert("Carga equipos.");
+        // Validar Paso 1 antes de avanzar
+        if (n === 2 && !this.validateConfig()) return;
         
+        if (n === 3) this.saveState();
+        
+        // Validar Paso 4
+        if (n === 4) {
+            if (State.teams.length < 4) {
+                alert("Carga al menos 4 equipos.");
+                return;
+            }
+            this.updateSummary();
+        }
+
+        // Cambiar Pantalla
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         document.getElementById(`step-${n}`).classList.add('active');
+
+        // Actualizar Botones Sidebar
         document.querySelectorAll('.step-btn').forEach(b => {
             b.classList.remove('active');
-            if(b.dataset.step == n) { b.classList.add('active'); b.removeAttribute('disabled'); }
+            if (parseInt(b.dataset.step) === parseInt(n)) {
+                b.classList.add('active');
+                b.removeAttribute('disabled');
+            }
         });
         this.saveState();
     },
 
-    // --- STEP 1 & 2 ---
-    validateStep1: function() {
-        const name = document.getElementById('cfg-name').value;
-        const date = document.getElementById('cfg-start-date').value;
-        if (!name || !date) return alert("Falta nombre o fecha") && false;
+    // Lee los valores del Paso 1
+    validateConfig: function() {
+        const nameInput = document.getElementById('cfg-name');
+        const dateInput = document.getElementById('cfg-date');
+        const loserInput = document.getElementById('cfg-loser-bracket'); // Checkbox Llave Perdedores
         
-        State.config.tournamentName = name;
-        State.config.startDate = date;
-        State.config.daysCount = parseInt(document.getElementById('cfg-days-count').value) || 5;
+        if (nameInput) State.config.name = nameInput.value;
+        if (dateInput) State.config.startDate = dateInput.value;
+        
+        if (loserInput) State.config.hasLoser = loserInput.checked; // IMPORTANTE: Guardamos si está activado
+
+        if (!State.config.name || !State.config.startDate) {
+            alert("Faltan datos obligatorios (Nombre, Fecha).");
+            return false;
+        }
         return true;
     },
 
-    generateCourtSlots: function() {
-        const n = parseInt(document.getElementById('cfg-courts-count').value);
+    // --- CANCHAS (Paso 2) ---
+    generateCourts: function() {
+        const n = parseInt(document.getElementById('cfg-court-count').value) || 2;
         State.courts = [];
-        for(let i=1; i<=n; i++) State.courts.push({ id:i, name:`Cancha ${i}` });
+        for (let i = 1; i <= n; i++) {
+            State.courts.push({ id: i, name: `Cancha ${i}`, open: "09:00", close: "22:00" });
+        }
         this.renderCourts();
         this.saveState();
     },
 
     renderCourts: function() {
         const c = document.getElementById('courts-container');
-        if(!c) return;
-        c.innerHTML = State.courts.map((ct, i) => `
-            <div class="court-card"><label>Nombre:</label><input type="text" value="${ct.name}" onchange="State.courts[${i}].name=this.value;App.saveState()"></div>
+        if (!c) return;
+        c.innerHTML = State.courts.map((court, i) => `
+            <div class="court-card">
+                <div class="court-header">
+                    <span>${court.name}</span>
+                    <input type="text" value="${court.name}" onchange="State.courts[${i}].name=this.value;App.saveState()" style="width: 120px;">
+                </div>
+            </div>
         `).join('');
     },
-    saveCourtsState: () => App.saveState(),
 
-    // --- STEP 3: EQUIPOS ---
-    handleCsvUpload: function(e) {
-        const f = e.target.files[0];
-        if(!f) return;
-        const r = new FileReader();
-        r.onload = (ev) => this.parseTeams(ev.target.result);
-        r.readAsText(f);
+    // --- EQUIPOS (Paso 3) ---
+    importCSV: function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const lines = ev.target.result.split(/\r\n|\n/).filter(l => l.trim());
+            const delim = lines[0].includes(';') ? ';' : ',';
+            let added = 0;
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(delim);
+                if (cols.length >= 2) {
+                    const z = cols[0].trim().toUpperCase();
+                    const n = cols[1].trim();
+                    if (n) {
+                        State.teams.push({ id: safeId(), zone: z, name: n });
+                        added++;
+                    }
+                }
+            }
+            State.teams.sort((a, b) => a.zone.localeCompare(b.zone));
+            this.renderTeams();
+            this.saveState();
+            alert(`Importados ${added} equipos.`);
+        };
+        reader.readAsText(file);
         e.target.value = '';
     },
 
-    parseTeams: function(txt) {
-        const lines = txt.split(/\r\n|\n/).filter(l => l.trim());
-        if(lines.length < 2) return alert("CSV vacío");
-        const delim = lines[0].includes(';') ? ';' : ',';
-        
-        let newTeams = [];
-        for(let i=1; i<lines.length; i++) {
-            const cols = lines[i].split(delim);
-            if(cols.length >= 2) newTeams.push({ id: safeId(), zone: cols[0].trim().toUpperCase(), name: cols[1].trim() });
-        }
-        
-        newTeams.sort((a,b) => a.zone.localeCompare(b.zone));
-        State.teams = newTeams;
+    addManualTeam: function() {
+        const z = document.getElementById('manual-zone').value.toUpperCase();
+        const n = document.getElementById('manual-name').value;
+        if (!n) return alert("Nombre requerido");
+        State.teams.push({ id: safeId(), zone: z || "?", name: n });
+        State.teams.sort((a, b) => a.zone.localeCompare(b.zone));
         this.renderTeams();
         this.saveState();
-        alert(`Cargados ${newTeams.length} equipos.`);
+        document.getElementById('manual-name').value = "";
     },
 
-    addManualTeam: function() {
-        const n = document.getElementById('manual-team-name').value;
-        const z = document.getElementById('manual-team-zone').value;
-        if(n) {
-            State.teams.push({ id: safeId(), name: n, zone: z.toUpperCase() || "?" });
-            this.renderTeams();
-            this.saveState();
-            document.getElementById('manual-team-name').value = "";
-        }
+    clearTeams: function() {
+        if (confirm("¿Borrar todo?")) { State.teams = []; this.renderTeams(); this.saveState(); }
     },
 
     deleteTeam: function(id) {
-        State.teams = State.teams.filter(t => t.id !== id);
-        this.renderTeams(); this.saveState();
-    },
-    deleteAllTeams: function() {
-        if(confirm("¿Borrar todos?")) { State.teams = []; this.renderTeams(); this.saveState(); }
+        if (!confirm("¿Eliminar?")) return;
+        State.teams = State.teams.filter(t => String(t.id) !== String(id));
+        this.renderTeams();
+        this.saveState();
     },
 
     renderTeams: function() {
-        const tb = document.getElementById('teams-list-body');
+        const tb = document.getElementById('teams-body');
         document.getElementById('team-count').innerText = State.teams.length;
-        if(!tb) return;
+        if (!tb) return;
+        tb.innerHTML = "";
         
-        if(State.teams.length === 0) {
-            document.getElementById('empty-teams-msg').style.display = 'block';
-            document.getElementById('teams-table').style.display = 'none';
+        if (State.teams.length === 0) {
+            document.getElementById('teams-empty').style.display = 'block';
             return;
         }
-        document.getElementById('empty-teams-msg').style.display = 'none';
-        document.getElementById('teams-table').style.display = 'table';
-
-        tb.innerHTML = State.teams.map((t, i) => `
+        document.getElementById('teams-empty').style.display = 'none';
+        
+        tb.innerHTML = State.teams.map(t => `
             <tr>
-                <td>${i+1}</td><td><span class="stats-badge">${t.zone}</span></td><td>${t.name}</td>
-                <td style="text-align:right"><button class="btn-icon" onclick="App.deleteTeam('${t.id}')"><i class="fa-solid fa-trash"></i></button></td>
+                <td><span class="badge">${t.zone}</span></td>
+                <td>${t.name}</td>
+                <td><button type="button" class="btn-icon-delete" onclick="App.deleteTeam('${t.id}')"><i class="fa-solid fa-trash"></i></button></td>
             </tr>
         `).join('');
     },
 
-    // --- GENERACIÓN ---
+    // --- GENERAR (Paso 4) ---
+    updateSummary: function() {
+        document.getElementById('summary-model').innerText = State.config.model;
+        document.getElementById('summary-teams').innerText = State.teams.length;
+        document.getElementById('summary-courts').innerText = State.courts.length;
+    },
+
     generateFixture: function() {
-        if(State.teams.length < 2) return alert("Faltan equipos");
+        if (State.teams.length === 0) return alert("Sin equipos.");
         
-        const matches = FixtureLogic.generate(State.teams);
+        // AQUÍ SE GENERA EL FIXTURE USANDO LA CONFIGURACIÓN (incluyendo hasLoser)
+        const rawMatches = FixtureEngine.generate(State.teams, State.config);
         
-        const startDate = new Date(State.config.startDate + "T00:00:00");
-        matches.forEach(m => {
+        let dateParts = State.config.startDate.split('-');
+        if(dateParts.length !== 3) {
+             const today = new Date();
+             dateParts = [today.getFullYear(), today.getMonth()+1, today.getDate()];
+        }
+        const startDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+
+        State.matches = rawMatches.map(m => {
             const d = new Date(startDate);
             d.setDate(startDate.getDate() + (m.dayIndex - 1));
-            m.dateStr = d.toLocaleDateString();
-            m.timeStr = excelTimeToString(m.timeVal);
-            const cObj = State.courts[m.courtIndex - 1];
-            m.courtName = cObj ? cObj.name : `Cancha ${m.courtIndex}`;
+            
+            const totalSec = Math.round(m.timeVal * 86400);
+            const hh = Math.floor(totalSec / 3600);
+            const mm = Math.floor((totalSec % 3600) / 60);
+            const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+            const court = State.courts[m.courtIndex - 1] || { name: `Cancha ${m.courtIndex}` };
+
+            return { ...m, dateStr: d.toLocaleDateString(), timeStr, courtName: court.name };
         });
 
-        State.matches = matches;
         this.renderFixture();
         this.saveState();
-        alert(`Fixture generado: ${matches.length} partidos.`);
+        alert(`Fixture generado: ${State.matches.length} partidos.`);
     },
 
     renderFixture: function() {
         const tb = document.getElementById('fixture-body');
-        if(!tb) return;
+        if (!tb) return;
+        tb.innerHTML = "";
         
         if(State.matches.length === 0) {
-            document.getElementById('empty-fixture-msg').style.display = 'block';
+            document.getElementById('fixture-empty').style.display = 'block';
             return;
         }
-        document.getElementById('empty-fixture-msg').style.display = 'none';
+        document.getElementById('fixture-empty').style.display = 'none';
         
         tb.innerHTML = State.matches.map(m => `
             <tr>
-                <td>${m.id}</td>
-                <td>Día ${m.dayIndex}</td>
-                <td>${m.dateStr}</td>
-                <td>${m.timeStr}</td>
-                <td>${m.courtName}</td>
-                <td><span class="stats-badge">${m.zone}</span></td>
-                <td><strong>${m.home}</strong> vs <strong>${m.away}</strong></td>
+                <td>${m.id}</td><td>Día ${m.dayIndex}</td><td>${m.timeStr}</td><td>${m.courtName}</td>
+                <td><span class="badge">${m.zone}</span></td><td><strong>${m.home}</strong> vs <strong>${m.away}</strong></td>
             </tr>
         `).join('');
     },
 
-    // --- PDF EXPORT (MEJORADO) ---
+    // --- EXPORTAR (Paso 5) ---
     exportPDF: function() {
-        if (State.matches.length === 0) return alert("Genera el fixture primero.");
-        if (!window.jspdf) return alert("Error: Librería PDF no cargada.");
+        if (State.matches.length === 0) return alert("Genera primero.");
+        if (!window.jspdf) return alert("Error librería PDF.");
         
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
-        
-        // Título del PDF
-        doc.setFontSize(22);
-        doc.setTextColor(40, 40, 40);
-        doc.text(State.config.tournamentName || "Fixture", 14, 20);
-        
-        doc.setFontSize(11);
-        doc.setTextColor(100, 100, 100);
-        doc.text(`Fecha de inicio: ${State.config.startDate}`, 14, 28);
-        doc.text(`Total de partidos: ${State.matches.length}`, 14, 34);
+        doc.setFontSize(18);
+        doc.text(State.config.name || "Fixture", 14, 20);
+        doc.setFontSize(10);
+        doc.text(`Inicio: ${State.config.startDate} | Total Partidos: ${State.matches.length}`, 14, 26);
 
-        let startY = 45;
-
-        // Agrupamos por Fecha para que el PDF sea más legible
-        // Creamos un mapa: { "25/11/2025": [match1, match2], ... }
+        // Agrupamos por Fecha
         const matchesByDate = {};
         State.matches.forEach(m => {
             if (!matchesByDate[m.dateStr]) matchesByDate[m.dateStr] = [];
             matchesByDate[m.dateStr].push(m);
         });
 
-        // Iteramos por cada fecha encontrada
+        let startY = 35;
+
         Object.keys(matchesByDate).forEach((dateKey) => {
-            const dayMatches = matchesByDate[dateKey];
+            if (startY > 270) { doc.addPage(); startY = 20; }
 
-            // Título del Día
-            // Si nos acercamos al final de la página, añadimos una nueva
-            if (startY > 270) {
-                doc.addPage();
-                startY = 20;
-            }
-
-            doc.setFontSize(14);
-            doc.setTextColor(0, 0, 0); // Negro
-            doc.setFillColor(240, 240, 240); // Fondo gris claro
-            doc.rect(14, startY - 6, 182, 8, 'F'); // Barra de fondo para el día
+            doc.setFontSize(12);
+            doc.setTextColor(0);
+            doc.setFillColor(230, 230, 230);
+            doc.rect(14, startY - 5, 182, 7, 'F');
             doc.text(`Fecha: ${dateKey}`, 16, startY);
             startY += 5;
 
-            // Datos de la tabla para este día
-            const rows = dayMatches.map(m => [
-                m.timeStr,
-                m.courtName,
-                m.zone,
-                m.home,
-                "vs",
-                m.away,
-                m.id // Columna ID para depurar
+            const rows = matchesByDate[dateKey].map(m => [
+                m.timeStr, m.courtName, m.zone, m.home, "vs", m.away, m.id 
             ]);
 
             doc.autoTable({
                 startY: startY,
-                head: [['Hora', 'Cancha', 'Zona/Fase', 'Local', '', 'Visitante', 'ID']],
+                head: [['Hora', 'Cancha', 'Fase', 'Local', '', 'Visitante', 'ID']],
                 body: rows,
                 theme: 'plain',
-                styles: { fontSize: 10, cellPadding: 3 },
-                headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
+                styles: { fontSize: 9, cellPadding: 2 },
+                headStyles: { fillColor: [60, 60, 60], textColor: 255 },
                 columnStyles: {
-                    0: { cellWidth: 20 }, // Hora
-                    1: { cellWidth: 30 }, // Cancha
-                    2: { cellWidth: 35 }, // Zona
-                    3: { cellWidth: 35, halign: 'right', fontStyle: 'bold' }, // Local
-                    4: { cellWidth: 10, halign: 'center' }, // vs
-                    5: { cellWidth: 35, fontStyle: 'bold' }, // Visitante
-                    6: { cellWidth: 15, halign: 'center' }  // ID
+                    0: { cellWidth: 15 }, 1: { cellWidth: 25 }, 2: { cellWidth: 30 },
+                    3: { cellWidth: 40, halign: 'right' }, 4: { cellWidth: 10, halign: 'center' },
+                    5: { cellWidth: 40, fontStyle: 'bold' }, 6: { cellWidth: 10, halign: 'center' }
                 },
                 margin: { left: 14, right: 14 }
             });
-
-            // Actualizamos la posición Y para el siguiente día
-            startY = doc.lastAutoTable.finalY + 15;
+            startY = doc.lastAutoTable.finalY + 10;
         });
-        
-        doc.save("fixture_profesional.pdf");
+
+        doc.save("fixture_pro.pdf");
     },
 
-    saveState: function() { localStorage.setItem('fp_state_v3', JSON.stringify(State)); },
+    // --- CARGA Y GUARDADO ---
+    saveState: function() { localStorage.setItem('fp_pro_v1', JSON.stringify(State)); },
+    
     loadState: function() {
-        const s = localStorage.getItem('fp_state_v3');
-        if(s) Object.assign(State, JSON.parse(s));
+        const s = localStorage.getItem('fp_pro_v1');
+        if (s) {
+            try {
+                const p = JSON.parse(s);
+                if(p.config) Object.assign(State.config, p.config);
+                if(p.teams) State.teams = p.teams;
+                if(p.courts) State.courts = p.courts;
+                // No cargamos matches para forzar regeneración limpia
+            } catch(e) { console.warn("Datos corruptos."); }
+        }
     },
+
     updateUI: function() {
-        if(State.config.tournamentName) document.getElementById('cfg-name').value = State.config.tournamentName;
-        if(State.config.startDate) document.getElementById('cfg-start-date').value = State.config.startDate;
-        if(State.courts.length) document.getElementById('cfg-courts-count').value = State.courts.length;
+        const nameIn = document.getElementById('cfg-name');
+        const dateIn = document.getElementById('cfg-date');
+        const loserIn = document.getElementById('cfg-loser-bracket');
+        
+        if (nameIn) nameIn.value = State.config.name || "";
+        if (dateIn) dateIn.value = State.config.startDate || "";
+        if (loserIn) loserIn.checked = State.config.hasLoser; 
+        
+        if (State.courts.length === 0) this.generateCourts();
+        
+        // Habilitar pasos si hay datos
+        if (State.config.name && State.config.startDate) {
+             const btn = document.querySelector('[data-step="2"]');
+             if(btn) btn.removeAttribute('disabled');
+        }
+        if (State.teams.length >= 4) {
+             const b3 = document.querySelector('[data-step="3"]');
+             const b4 = document.querySelector('[data-step="4"]');
+             if(b3) b3.removeAttribute('disabled');
+             if(b4) b4.removeAttribute('disabled');
+        }
     },
+
     bindEvents: function() {
-        document.getElementById('btn-reset').addEventListener('click', () => {
-            if(confirm("¿Reiniciar?")) { localStorage.clear(); location.reload(); }
+        const rBtn = document.getElementById('btn-reset');
+        if (rBtn) {
+            rBtn.addEventListener('click', () => {
+                if(confirm("¿Reiniciar?")) this.resetApp();
+            });
+        }
+        document.querySelectorAll('.step-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if(!btn.hasAttribute('disabled')) this.goToStep(parseInt(btn.dataset.step));
+            });
         });
-        if(State.courts.length===0) this.generateCourtSlots();
     }
 };
 
 window.App = App;
-document.addEventListener('DOMContentLoaded', () => App.init());
+document.addEventListener('DOMContentLoaded', () => setTimeout(() => App.init(), 100));
+```
+
+### ✅ Pasos para probar:
+
+1.  **Recarga la página.**
+2.  Ve al **Paso 1** y marca la casilla **"Llave de Perdedores"**. Asegúrate de que quede activada.
+3.  Ve al Paso 2, Paso 3 (carga equipos si no hay).
+4.  En el **Paso 4**, haz clic en "Ejecutar Motor".
+5.  El mensaje de alerta debería decirte ahora **"Fixture generado: 64 partidos"** (aproximadamente, dependiendo de los equipos cargados).
+6.  En el **Paso 5**, descarga el PDF y verifica que aparezcan los partidos con la etiqueta `(Semi Perd)`, `(Final Perd)` o `(7mo)`.
