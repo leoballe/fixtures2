@@ -252,15 +252,29 @@
             </div>
         </section>
 
-        <!-- PASO 5: EXPORTAR (Placeholder) -->
+<!-- PASO 5: EXPORTAR -->
         <section id="step-5" class="panel">
             <header class="panel-header">
-                <h1>Exportar Documento</h1>
+                <h2>Exportar Resultados</h2>
+                <p>Descarga el fixture oficial en formato PDF.</p>
             </header>
-            <div class="placeholder-box">
-                <p>Aquí configuraremos la exportación a PDF.</p>
+
+            <div class="export-area">
+                <div class="pdf-preview-icon">
+                    <i class="fa-solid fa-file-pdf"></i>
+                </div>
+                <h3>¡Todo listo!</h3>
+                <p style="color:var(--text-secondary); margin-bottom: 2rem;">
+                    Tu fixture ha sido generado y organizado por fechas.<br>
+                    Haz clic abajo para descargarlo.
+                </p>
+                
+                <button class="btn-primary btn-large" onclick="App.exportPDF()" style="margin: 0 auto;">
+                    <i class="fa-solid fa-download"></i> Descargar PDF Oficial
+                </button>
             </div>
-            <div class="actions">
+
+            <div class="panel-actions">
                 <button class="btn-secondary" onclick="App.goToStep(4)">Atrás</button>
             </div>
         </section>
@@ -271,5 +285,6 @@
 <script src="app.js"></script>
 </body>
 </html>
+
 
 
