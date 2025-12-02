@@ -1,6 +1,6 @@
 /**
- * FIXTURE PLANNER PRO v3.0
- * Generación Adaptativa (Sin dependencia de CSV externos)
+ * FIXTURE PLANNER PRO v3.1 (Base v3.0 + PDF Mejorado)
+ * Generación Adaptativa + Exportación Profesional por Días
  */
 
 // --- ESTADO GLOBAL ---
@@ -37,10 +37,6 @@ const FixtureLogic = {
     // Definición de la estructura ideal para 24 equipos (8 Zonas x 3)
     structure24: {
         zones: ['A','B','C','D','E','F','G','H'],
-        phase1_matches: [
-            // Patrón genérico por zona (1vs2, 2vs3, 3vs1)
-            // Se generará dinámicamente
-        ],
         phase2_matches: [
             // A1 (1ros de A, D, E, H)
             { z: "A1", h: "1ºA", a: "1ºD" }, { z: "A1", h: "1ºE", a: "1ºH" },
@@ -55,12 +51,10 @@ const FixtureLogic = {
     },
 
     generate: function(teams) {
-        const totalTeams = teams.length;
         const matches = [];
         let matchId = 1;
 
         // 1. ORGANIZAR EQUIPOS EN ZONAS REALES
-        // Agrupamos los equipos cargados por su Zona
         const zoneMap = {};
         teams.forEach(t => {
             if (!zoneMap[t.zone]) zoneMap[t.zone] = [];
@@ -85,28 +79,18 @@ const FixtureLogic = {
                 matches.push(this.createMatch(matchId++, 1, 0.375, 1, `Zona ${zone}`, zoneTeams[0].name, zoneTeams[1].name)); // Ida
                 matches.push(this.createMatch(matchId++, 2, 0.375, 1, `Zona ${zone}`, zoneTeams[1].name, zoneTeams[0].name)); // Vuelta
             }
-            // Lógica para zona de 4 (si hubiera)
-            else if (count === 4) {
-                // ... lógica de 4 ...
-            }
         });
 
         // --- FASE 2: CLASIFICACIÓN A1 / A2 ---
-        // Aquí adaptamos. Si no hay Zona H (caso < 24 equipos), el "1ºH" no existe.
-        // Reemplazo inteligente:
-        // Si falta 1ºH -> Buscamos al "Mejor 2do" global para completar A1.
-        
         const slotsA1 = ["1ºA", "1ºD", "1ºE", "1ºH"];
         const slotsA2 = ["1ºB", "1ºC", "1ºF", "1ºG"];
 
         // Adaptación de slots si faltan zonas
         if (!activeZones.includes('H')) {
-            // Reemplazar 1ºH por "Mejor 2º"
             const idx = slotsA1.indexOf("1ºH");
             if(idx !== -1) slotsA1[idx] = "Mejor 2º";
         }
         if (!activeZones.includes('G')) {
-            // Reemplazar 1ºG por "2do Mejor 2º"
             const idx = slotsA2.indexOf("1ºG");
             if(idx !== -1) slotsA2[idx] = "2do Mejor 2º";
         }
@@ -116,9 +100,6 @@ const FixtureLogic = {
         this.generateGroupMatches(matches, "Zona A2", slotsA2, 3);
 
         // --- FASE 3: LLAVES ---
-        // Generar cuartos, semis y final para Puestos 9-16 (Segundos) y 17-24 (Terceros)
-        // Aquí también adaptamos: si falta una zona, hay un BYE.
-        
         this.generateBracket(matches, "Llave B (2dos)", ["2ºA","2ºB","2ºC","2ºD","2ºE","2ºF","2ºG","2ºH"], activeZones, 3);
         this.generateBracket(matches, "Llave C (3ros)", ["3ºA","3ºB","3ºC","3ºD","3ºE","3ºF","3ºG","3ºH"], activeZones, 3);
 
@@ -129,7 +110,7 @@ const FixtureLogic = {
         matches.push(this.createMatch(902, 5, 0.4, 1, "5to Puesto", "3º Zona A1", "3º Zona A2"));
         matches.push(this.createMatch(903, 5, 0.4, 2, "7mo Puesto", "4º Zona A1", "4º Zona A2"));
 
-        // Reordenar IDs
+        // Reordenar IDs consecutivos para que se vean bien
         matches.forEach((m, i) => m.id = i + 1);
         
         return matches;
@@ -149,28 +130,24 @@ const FixtureLogic = {
     },
 
     generateGroupMatches: function(matchesArray, zoneName, teams, startDay) {
-        // Round robin de 4 equipos (3 fechas)
-        // F1: 1-4, 2-3
+        // F1
         matchesArray.push(this.createMatch(0, startDay, 0.375, 1, zoneName, teams[0], teams[3]));
         matchesArray.push(this.createMatch(0, startDay, 0.375, 2, zoneName, teams[1], teams[2]));
-        // F2: 1-3, 4-2
+        // F2
         matchesArray.push(this.createMatch(0, startDay+1, 0.375, 1, zoneName, teams[0], teams[2]));
         matchesArray.push(this.createMatch(0, startDay+1, 0.375, 2, zoneName, teams[3], teams[1]));
-        // F3: 1-2, 3-4
+        // F3
         matchesArray.push(this.createMatch(0, startDay+2, 0.375, 1, zoneName, teams[0], teams[1]));
         matchesArray.push(this.createMatch(0, startDay+2, 0.375, 2, zoneName, teams[2], teams[3]));
     },
 
     generateBracket: function(matchesArray, zoneName, slots, activeZones, startDay) {
-        // Filtramos slots inválidos (zonas que no existen)
-        // Ej: si activeZones llega hasta F, entonces 2ºG y 2ºH son BYE
         const validSlots = slots.map(s => {
             const zoneChar = s.slice(-1); // Última letra "A" de "2ºA"
             return activeZones.includes(zoneChar) ? s : "BYE";
         });
 
-        // Cuartos (Día 3) - Cruces Fijos 1-8, 2-7, 3-6, 4-5 (o por sorteo/cercanía)
-        // Adaptamos al esquema 8x3: A-D, B-C, E-H, F-G
+        // Cuartos (Día 3)
         const qf = [
             {h: validSlots[0], a: validSlots[3]}, // A vs D
             {h: validSlots[1], a: validSlots[2]}, // B vs C
@@ -179,12 +156,11 @@ const FixtureLogic = {
         ];
 
         qf.forEach((m, i) => {
-            // Si alguno es BYE, el otro pasa directo (no se genera partido o se marca)
             if (m.h === "BYE" || m.a === "BYE") return; 
             matchesArray.push(this.createMatch(0, startDay, 0.5 + (i*0.05), 1, zoneName + " (4tos)", m.h, m.a));
         });
 
-        // Semis y Finales (simulados con texto genérico por ahora)
+        // Semis y Finales
         matchesArray.push(this.createMatch(0, startDay+1, 0.6, 1, zoneName + " (Semi)", "Ganador Q1", "Ganador Q2"));
         matchesArray.push(this.createMatch(0, startDay+1, 0.6, 2, zoneName + " (Semi)", "Ganador Q3", "Ganador Q4"));
         matchesArray.push(this.createMatch(0, startDay+2, 0.7, 1, zoneName + " (Final)", "Ganador S1", "Ganador S2"));
@@ -215,6 +191,7 @@ const App = {
         this.saveState();
     },
 
+    // --- STEP 1 & 2 ---
     validateStep1: function() {
         const name = document.getElementById('cfg-name').value;
         const date = document.getElementById('cfg-start-date').value;
@@ -243,7 +220,7 @@ const App = {
     },
     saveCourtsState: () => App.saveState(),
 
-    // EQUIPOS
+    // --- STEP 3: EQUIPOS ---
     handleCsvUpload: function(e) {
         const f = e.target.files[0];
         if(!f) return;
@@ -261,12 +238,10 @@ const App = {
         let newTeams = [];
         for(let i=1; i<lines.length; i++) {
             const cols = lines[i].split(delim);
-            if(cols.length >= 2) newTeams.push({ zone: cols[0].trim().toUpperCase(), name: cols[1].trim() });
+            if(cols.length >= 2) newTeams.push({ id: safeId(), zone: cols[0].trim().toUpperCase(), name: cols[1].trim() });
         }
         
-        // Ordenar por Zona
         newTeams.sort((a,b) => a.zone.localeCompare(b.zone));
-        
         State.teams = newTeams;
         this.renderTeams();
         this.saveState();
@@ -285,11 +260,11 @@ const App = {
     },
 
     deleteTeam: function(id) {
-        State.teams = State.teams.filter(t => t.id !== id); // Error corregido: id no existía en obj manual
+        State.teams = State.teams.filter(t => t.id !== id);
         this.renderTeams(); this.saveState();
     },
     deleteAllTeams: function() {
-        if(confirm("¿Borrar?")) { State.teams = []; this.renderTeams(); this.saveState(); }
+        if(confirm("¿Borrar todos?")) { State.teams = []; this.renderTeams(); this.saveState(); }
     },
 
     renderTeams: function() {
@@ -313,24 +288,18 @@ const App = {
         `).join('');
     },
 
-    // GENERACIÓN AUTOMÁTICA
+    // --- GENERACIÓN ---
     generateFixture: function() {
         if(State.teams.length < 2) return alert("Faltan equipos");
         
-        // Ejecutar lógica adaptable
         const matches = FixtureLogic.generate(State.teams);
         
-        // Asignar fechas reales
         const startDate = new Date(State.config.startDate + "T00:00:00");
         matches.forEach(m => {
             const d = new Date(startDate);
             d.setDate(startDate.getDate() + (m.dayIndex - 1));
             m.dateStr = d.toLocaleDateString();
-            
-            // Hora legible
             m.timeStr = excelTimeToString(m.timeVal);
-            
-            // Cancha nombre real
             const cObj = State.courts[m.courtIndex - 1];
             m.courtName = cObj ? cObj.name : `Cancha ${m.courtIndex}`;
         });
@@ -338,7 +307,7 @@ const App = {
         State.matches = matches;
         this.renderFixture();
         this.saveState();
-        alert(`Fixture generado: ${matches.length} partidos adaptados a ${State.teams.length} equipos.`);
+        alert(`Fixture generado: ${matches.length} partidos.`);
     },
 
     renderFixture: function() {
@@ -364,6 +333,89 @@ const App = {
         `).join('');
     },
 
+    // --- PDF EXPORT (MEJORADO) ---
+    exportPDF: function() {
+        if (State.matches.length === 0) return alert("Genera el fixture primero.");
+        if (!window.jspdf) return alert("Error: Librería PDF no cargada.");
+        
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        
+        // Título del PDF
+        doc.setFontSize(22);
+        doc.setTextColor(40, 40, 40);
+        doc.text(State.config.tournamentName || "Fixture", 14, 20);
+        
+        doc.setFontSize(11);
+        doc.setTextColor(100, 100, 100);
+        doc.text(`Fecha de inicio: ${State.config.startDate}`, 14, 28);
+        doc.text(`Total de partidos: ${State.matches.length}`, 14, 34);
+
+        let startY = 45;
+
+        // Agrupamos por Fecha para que el PDF sea más legible
+        // Creamos un mapa: { "25/11/2025": [match1, match2], ... }
+        const matchesByDate = {};
+        State.matches.forEach(m => {
+            if (!matchesByDate[m.dateStr]) matchesByDate[m.dateStr] = [];
+            matchesByDate[m.dateStr].push(m);
+        });
+
+        // Iteramos por cada fecha encontrada
+        Object.keys(matchesByDate).forEach((dateKey) => {
+            const dayMatches = matchesByDate[dateKey];
+
+            // Título del Día
+            // Si nos acercamos al final de la página, añadimos una nueva
+            if (startY > 270) {
+                doc.addPage();
+                startY = 20;
+            }
+
+            doc.setFontSize(14);
+            doc.setTextColor(0, 0, 0); // Negro
+            doc.setFillColor(240, 240, 240); // Fondo gris claro
+            doc.rect(14, startY - 6, 182, 8, 'F'); // Barra de fondo para el día
+            doc.text(`Fecha: ${dateKey}`, 16, startY);
+            startY += 5;
+
+            // Datos de la tabla para este día
+            const rows = dayMatches.map(m => [
+                m.timeStr,
+                m.courtName,
+                m.zone,
+                m.home,
+                "vs",
+                m.away,
+                m.id // Columna ID para depurar
+            ]);
+
+            doc.autoTable({
+                startY: startY,
+                head: [['Hora', 'Cancha', 'Zona/Fase', 'Local', '', 'Visitante', 'ID']],
+                body: rows,
+                theme: 'plain',
+                styles: { fontSize: 10, cellPadding: 3 },
+                headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
+                columnStyles: {
+                    0: { cellWidth: 20 }, // Hora
+                    1: { cellWidth: 30 }, // Cancha
+                    2: { cellWidth: 35 }, // Zona
+                    3: { cellWidth: 35, halign: 'right', fontStyle: 'bold' }, // Local
+                    4: { cellWidth: 10, halign: 'center' }, // vs
+                    5: { cellWidth: 35, fontStyle: 'bold' }, // Visitante
+                    6: { cellWidth: 15, halign: 'center' }  // ID
+                },
+                margin: { left: 14, right: 14 }
+            });
+
+            // Actualizamos la posición Y para el siguiente día
+            startY = doc.lastAutoTable.finalY + 15;
+        });
+        
+        doc.save("fixture_profesional.pdf");
+    },
+
     saveState: function() { localStorage.setItem('fp_state_v3', JSON.stringify(State)); },
     loadState: function() {
         const s = localStorage.getItem('fp_state_v3');
@@ -382,4 +434,5 @@ const App = {
     }
 };
 
+window.App = App;
 document.addEventListener('DOMContentLoaded', () => App.init());
