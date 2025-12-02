@@ -1,7 +1,6 @@
 /**
- * FIXTURE PLANNER PRO v6.0 (Final Stable & Debugged)
- * Arquitectura modular, robusta y con manejo de errores mejorado.
- * Soluciona problemas de navegación y regeneración de estado.
+ * FIXTURE PLANNER PRO v7.0 (Syntax Verified)
+ * Lógica de 64 partidos + Corrección de errores de carga.
  */
 
 // --- ESTADO GLOBAL ---
@@ -35,11 +34,10 @@ function excelTimeToString(fraction) {
     return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
 }
 
-// --- LÓGICA DE MODELOS (Adaptador Matemático) ---
+// --- MOTOR DE FIXTURE (Lógica Matemática) ---
 const FixtureEngine = {
-    // Definición "Ideal" del modelo 8x3 (24 Equipos)
+    // Estructura base 24 equipos
     model_8x3: {
-        zones: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
         phase2_structure: [
             { name: "Zona A1", slots: ["1ºA", "1ºD", "1ºE", "1ºH"] },
             { name: "Zona A2", slots: ["1ºB", "1ºC", "1ºF", "1ºG"] }
@@ -50,7 +48,7 @@ const FixtureEngine = {
         const matches = [];
         let matchId = 1;
 
-        // 1. ORGANIZAR EQUIPOS
+        // 1. CLASIFICAR EQUIPOS
         const zoneMap = {};
         teams.forEach(t => {
             if (!zoneMap[t.zone]) zoneMap[t.zone] = [];
@@ -62,7 +60,6 @@ const FixtureEngine = {
         activeZones.forEach((zChar) => {
             const teamList = zoneMap[zChar];
             const count = teamList.length;
-
             if (count === 3) {
                 this.addMatch(matches, matchId++, 1, 0.375, 1, `Zona ${zChar}`, teamList[0].name, teamList[1].name);
                 this.addMatch(matches, matchId++, 1, 0.45, 1, `Zona ${zChar}`, teamList[1].name, teamList[2].name);
@@ -81,7 +78,6 @@ const FixtureEngine = {
                 if (activeZones.includes(zoneReq)) return slotName;
                 return "Mejor 2º";
             });
-
             const dBase = 3;
             // Fecha 1
             this.addMatch(matches, matchId++, dBase, 0.4, 1, group.name, realSlots[0], realSlots[3]);
@@ -94,44 +90,38 @@ const FixtureEngine = {
             this.addMatch(matches, matchId++, dBase + 2, 0.4, 2, group.name, realSlots[2], realSlots[3]);
         });
 
-        // 4. FASE 3: LLAVES
+        // 4. FASE 3: LLAVES (Con opción de perdedores)
+        // Llave B (Puestos 9-16)
         this.generateBracket(matches, "Llave B (2dos)", ["2ºA","2ºB","2ºC","2ºD","2ºE","2ºF","2ºG","2ºH"], activeZones, 3, config.hasLoser);
+        // Llave C (Puestos 17-24)
         this.generateBracket(matches, "Llave C (3ros)", ["3ºA","3ºB","3ºC","3ºD","3ºE","3ºF","3ºG","3ºH"], activeZones, 3, config.hasLoser);
 
-        // 5. FINALES
+        // 5. FASE 4: FINALES
         this.addMatch(matches, 900, 5, 0.7, 1, "Final", "1º Zona A1", "1º Zona A2");
         this.addMatch(matches, 901, 5, 0.7, 2, "3er Puesto", "2º Zona A1", "2º Zona A2");
         this.addMatch(matches, 902, 5, 0.4, 1, "5to Puesto", "3º Zona A1", "3º Zona A2");
         this.addMatch(matches, 903, 5, 0.4, 2, "7mo Puesto", "4º Zona A1", "4º Zona A2");
 
-        // Renumerar IDs consecutivos visuales
+        // Renumerar visualmente
         matches.forEach((m, i) => m.id = i + 1);
         return matches;
     },
 
     createMatch: function(id, day, time, court, zone, home, away) {
-        return {
-            id: id,
-            date: "",
-            dayIndex: day,
-            timeVal: time,
-            courtIndex: court,
-            zone: zone,
-            home: home,
-            away: away
-        };
+        return { id: id, date: "", dayIndex: day, timeVal: time, courtIndex: court, zone: zone, home: home, away: away };
     },
 
     addMatch: function(list, id, day, time, courtIdx, zone, home, away) {
         list.push(this.createMatch(id, day, time, courtIdx, zone, home, away));
     },
 
-    generateBracket: function(matchesArray, zoneName, slots, activeZones, startDay, withLoserBracket) {
+    generateBracket: function(matchesArray, zoneName, slots, activeZones, startDay, withLoser) {
         const validSlots = slots.map(s => {
             const zoneChar = s.slice(-1);
             return activeZones.includes(zoneChar) ? s : "BYE";
         });
 
+        // Cuartos
         const qf = [
             { h: validSlots[0], a: validSlots[3] },
             { h: validSlots[1], a: validSlots[2] },
@@ -144,18 +134,22 @@ const FixtureEngine = {
             this.addMatch(matchesArray, 0, startDay, 0.5 + (i * 0.05), 1, zoneName + " (4tos)", m.h, m.a);
         });
 
-        this.addMatch(matchesArray, 0, startDay + 1, 0.6, 1, zoneName + " (Semi)", "Ganador Q1", "Ganador Q2");
-        this.addMatch(matchesArray, 0, startDay + 1, 0.6, 2, zoneName + " (Semi)", "Ganador Q3", "Ganador Q4");
+        // Semis Ganadores
+        this.addMatch(matchesArray, 0, startDay + 1, 0.6, 1, zoneName + " (Semi Gan)", "Ganador Q1", "Ganador Q2");
+        this.addMatch(matchesArray, 0, startDay + 1, 0.6, 2, zoneName + " (Semi Gan)", "Ganador Q3", "Ganador Q4");
 
-        if (withLoserBracket) {
+        // Semis Perdedores (Solo si hasLoser == true)
+        if (withLoser) {
             this.addMatch(matchesArray, 0, startDay + 1, 0.5, 1, zoneName + " (Semi Perd)", "Perdedor Q1", "Perdedor Q2");
             this.addMatch(matchesArray, 0, startDay + 1, 0.5, 2, zoneName + " (Semi Perd)", "Perdedor Q3", "Perdedor Q4");
         }
 
+        // Finales Ganadores
         this.addMatch(matchesArray, 0, startDay + 2, 0.7, 1, zoneName + " (Final)", "Ganador Semi G1", "Ganador Semi G2");
         this.addMatch(matchesArray, 0, startDay + 2, 0.7, 2, zoneName + " (3er)", "Perdedor Semi G1", "Perdedor Semi G2");
 
-        if (withLoserBracket) {
+        // Finales Perdedores (Solo si hasLoser == true)
+        if (withLoser) {
             this.addMatch(matchesArray, 0, startDay + 2, 0.5, 1, zoneName + " (Final Perd)", "Ganador Semi P1", "Ganador Semi P2");
             this.addMatch(matchesArray, 0, startDay + 2, 0.5, 2, zoneName + " (7mo)", "Perdedor Semi P1", "Perdedor Semi P2");
         }
@@ -169,16 +163,15 @@ const App = {
         try {
             this.loadState();
             this.sanitizeData();
-            this.bindEvents(); // Vinculación crítica de eventos
+            this.bindEvents();
             this.renderCourts();
             this.renderTeams();
             this.updateUI();
-            console.log("App inicializada correctamente.");
+            console.log("App cargada correctamente.");
         } catch (error) {
-            console.error("Error crítico al inicializar:", error);
-            if (confirm("Hubo un error al cargar los datos guardados. ¿Deseas reiniciar la aplicación para corregirlo?")) {
-                this.resetApp();
-            }
+            console.error("Error crítico:", error);
+            alert("Error de inicialización. Se reiniciarán los datos.");
+            this.resetApp();
         }
     },
 
@@ -191,74 +184,57 @@ const App = {
         let fixed = false;
         if (!Array.isArray(State.teams)) State.teams = [];
         State.teams.forEach(t => {
-            if (!t.id) {
-                t.id = safeId();
-                fixed = true;
-            }
+            if (!t.id) { t.id = safeId(); fixed = true; }
         });
-        if (fixed) {
-            console.log("Datos reparados automáticamente.");
-            this.saveState();
-        }
+        if (fixed) this.saveState();
     },
 
-    // --- NAVEGACIÓN ---
     goToStep: function(n) {
-        // Validaciones
         if (n === 2 && !this.validateConfig()) return;
         if (n === 3) this.saveState();
         if (n === 4) {
             if (State.teams.length < 4) {
-                alert("Carga al menos 4 equipos para generar el fixture.");
+                alert("Carga al menos 4 equipos.");
                 return;
             }
             this.updateSummary();
         }
 
-        // Cambio de UI
-        const panels = document.querySelectorAll('.panel');
-        const buttons = document.querySelectorAll('.step-btn');
-        const targetPanel = document.getElementById(`step-${n}`);
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        const target = document.getElementById(`step-${n}`);
+        if (target) target.classList.add('active');
 
-        if (!targetPanel) {
-            console.error("Panel no encontrado:", `step-${n}`);
-            return;
-        }
-
-        panels.forEach(p => p.classList.remove('active'));
-        targetPanel.classList.add('active');
-
-        buttons.forEach(b => {
+        document.querySelectorAll('.step-btn').forEach(b => {
             b.classList.remove('active');
             if (parseInt(b.dataset.step) === parseInt(n)) {
                 b.classList.add('active');
                 b.removeAttribute('disabled');
             }
         });
-
         this.saveState();
     },
 
     validateConfig: function() {
-        const nameInput = document.getElementById('cfg-name');
-        const dateInput = document.getElementById('cfg-date');
-        const loserInput = document.getElementById('cfg-loser-bracket');
-        
-        if (nameInput) State.config.name = nameInput.value;
-        if (dateInput) State.config.startDate = dateInput.value;
-        if (loserInput) State.config.hasLoser = loserInput.checked;
+        const nameIn = document.getElementById('cfg-name');
+        const dateIn = document.getElementById('cfg-date');
+        const loserIn = document.getElementById('cfg-loser-bracket');
+
+        if (nameIn) State.config.name = nameIn.value;
+        if (dateIn) State.config.startDate = dateIn.value;
+        // IMPORTANTE: Leer el checkbox aquí
+        if (loserInput = document.getElementById('cfg-loser-bracket')) {
+            State.config.hasLoser = loserInput.checked;
+        }
 
         if (!State.config.name || !State.config.startDate) {
-            alert("Por favor, completa el Nombre del Evento y la Fecha de Inicio.");
+            alert("Faltan datos obligatorios (Nombre, Fecha).");
             return false;
         }
         return true;
     },
 
-    // --- STEP 2: COURTS ---
     generateCourts: function() {
-        const countInput = document.getElementById('cfg-court-count');
-        const n = parseInt(countInput.value) || 2;
+        const n = parseInt(document.getElementById('cfg-court-count').value) || 2;
         State.courts = [];
         for (let i = 1; i <= n; i++) {
             State.courts.push({ id: i, name: `Cancha ${i}`, open: "09:00", close: "22:00" });
@@ -282,18 +258,15 @@ const App = {
         `).join('');
     },
 
-    // --- STEP 3: TEAMS ---
     importCSV: function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = (ev) => {
             const lines = ev.target.result.split(/\r\n|\n/).filter(l => l.trim());
-            if (lines.length < 2) return alert("CSV vacío o sin datos");
-
+            if (lines.length < 2) return alert("CSV vacío");
             const delim = lines[0].includes(';') ? ';' : ',';
             let added = 0;
-
             for (let i = 1; i < lines.length; i++) {
                 const cols = lines[i].split(delim);
                 if (cols.length >= 2) {
@@ -310,39 +283,27 @@ const App = {
             this.saveState();
             alert(`Importados ${added} equipos.`);
         };
-        reader.readAsText(file);
+        r.readAsText(f);
         e.target.value = '';
     },
 
     addManualTeam: function() {
-        const zInput = document.getElementById('manual-zone');
-        const nInput = document.getElementById('manual-name');
-        
-        const z = zInput.value.toUpperCase();
-        const n = nInput.value;
-        
-        if (!n) return alert("Ingresa un nombre para el equipo.");
-        
+        const z = document.getElementById('manual-zone').value.toUpperCase();
+        const n = document.getElementById('manual-name').value;
+        if (!n) return alert("Nombre requerido");
         State.teams.push({ id: safeId(), zone: z || "?", name: n });
         State.teams.sort((a, b) => a.zone.localeCompare(b.zone));
-        
         this.renderTeams();
         this.saveState();
-        
-        nInput.value = "";
-        zInput.focus(); 
+        document.getElementById('manual-name').value = "";
     },
 
     clearTeams: function() {
-        if (confirm("¿Estás seguro de borrar TODOS los equipos?")) {
-            State.teams = [];
-            this.renderTeams();
-            this.saveState();
-        }
+        if (confirm("¿Borrar todo?")) { State.teams = []; this.renderTeams(); this.saveState(); }
     },
 
     deleteTeam: function(id) {
-        if (!confirm("¿Eliminar este equipo?")) return;
+        if (!confirm("¿Eliminar?")) return;
         State.teams = State.teams.filter(t => String(t.id) !== String(id));
         this.renderTeams();
         this.saveState();
@@ -350,52 +311,42 @@ const App = {
 
     renderTeams: function() {
         const tb = document.getElementById('teams-body');
-        const countSpan = document.getElementById('team-count');
-        const emptyDiv = document.getElementById('teams-empty');
-
+        document.getElementById('team-count').innerText = State.teams.length;
         if (!tb) return;
-
-        countSpan.innerText = State.teams.length;
-
+        tb.innerHTML = "";
+        
         if (State.teams.length === 0) {
-            tb.innerHTML = "";
-            if (emptyDiv) emptyDiv.style.display = 'block';
+            document.getElementById('teams-empty').style.display = 'block';
             return;
         }
+        document.getElementById('teams-empty').style.display = 'none';
         
-        if (emptyDiv) emptyDiv.style.display = 'none';
-
         tb.innerHTML = State.teams.map(t => `
             <tr>
                 <td><span class="badge">${t.zone}</span></td>
                 <td>${t.name}</td>
-                <td>
-                    <button type="button" class="btn-icon-delete" onclick="App.deleteTeam('${t.id}')">
-                        <i class="fa-solid fa-trash"></i>
-                    </button>
-                </td>
+                <td><button type="button" class="btn-icon-delete" onclick="App.deleteTeam('${t.id}')"><i class="fa-solid fa-trash"></i></button></td>
             </tr>
         `).join('');
     },
 
-    // --- STEP 4: GENERATE ---
     updateSummary: function() {
-        const modelSpan = document.getElementById('summary-model');
-        const teamsSpan = document.getElementById('summary-teams');
-        const courtsSpan = document.getElementById('summary-courts');
-        
-        if(modelSpan) modelSpan.innerText = State.config.model;
-        if(teamsSpan) teamsSpan.innerText = State.teams.length;
-        if(courtsSpan) courtsSpan.innerText = State.courts.length;
+        const ms = document.getElementById('summary-model');
+        const ts = document.getElementById('summary-teams');
+        const cs = document.getElementById('summary-courts');
+        if (ms) ms.innerText = State.config.model;
+        if (ts) ts.innerText = State.teams.length;
+        if (cs) cs.innerText = State.courts.length;
     },
 
     generateFixture: function() {
         if (State.teams.length === 0) return alert("Sin equipos.");
         
+        // Generar usando la configuración actual (incluyendo hasLoser)
         const rawMatches = FixtureEngine.generate(State.teams, State.config);
         
         let dateParts = State.config.startDate.split('-');
-        if(dateParts.length !== 3) {
+        if (dateParts.length !== 3) {
              const today = new Date();
              dateParts = [today.getFullYear(), today.getMonth()+1, today.getDate()];
         }
@@ -426,14 +377,15 @@ const App = {
 
     renderFixture: function() {
         const tb = document.getElementById('fixture-body');
+        const em = document.getElementById('fixture-empty');
         if (!tb) return;
         tb.innerHTML = "";
         
-        if(State.matches.length === 0) {
-            document.getElementById('fixture-empty').style.display = 'block';
+        if (State.matches.length === 0) {
+            if (em) em.style.display = 'block';
             return;
         }
-        document.getElementById('fixture-empty').style.display = 'none';
+        if (em) em.style.display = 'none';
         
         tb.innerHTML = State.matches.map(m => `
             <tr>
@@ -443,7 +395,6 @@ const App = {
         `).join('');
     },
 
-    // --- STEP 5: EXPORT ---
     exportPDF: function() {
         if (State.matches.length === 0) return alert("Genera primero.");
         if (!window.jspdf) return alert("Error librería PDF.");
@@ -453,53 +404,16 @@ const App = {
         doc.setFontSize(18);
         doc.text(State.config.name || "Fixture", 14, 20);
         doc.setFontSize(10);
-        doc.text(`Inicio: ${State.config.startDate} | Total Partidos: ${State.matches.length}`, 14, 26);
+        doc.text(`Inicio: ${State.config.startDate}`, 14, 26);
 
-        const matchesByDate = {};
-        State.matches.forEach(m => {
-            if (!matchesByDate[m.dateStr]) matchesByDate[m.dateStr] = [];
-            matchesByDate[m.dateStr].push(m);
+        const rows = State.matches.map(m => [ m.dateStr, m.timeStr, m.courtName, m.zone, `${m.home} vs ${m.away}`, m.id ]);
+        doc.autoTable({
+            head: [['Fecha', 'Hora', 'Cancha', 'Fase', 'Partido', 'ID']],
+            body: rows, startY: 35, theme: 'grid', headStyles: { fillColor: [59, 130, 246] }
         });
-
-        let startY = 35;
-
-        Object.keys(matchesByDate).forEach((dateKey) => {
-            const dayMatches = matchesByDate[dateKey];
-
-            if (startY > 270) { doc.addPage(); startY = 20; }
-
-            doc.setFontSize(12);
-            doc.setTextColor(0);
-            doc.setFillColor(230, 230, 230);
-            doc.rect(14, startY - 5, 182, 7, 'F');
-            doc.text(`Fecha: ${dateKey}`, 16, startY);
-            startY += 5;
-
-            const rows = dayMatches.map(m => [
-                m.timeStr, m.courtName, m.zone, m.home, "vs", m.away, m.id 
-            ]);
-
-            doc.autoTable({
-                startY: startY,
-                head: [['Hora', 'Cancha', 'Fase', 'Local', '', 'Visitante', 'ID']],
-                body: rows,
-                theme: 'plain',
-                styles: { fontSize: 9, cellPadding: 2 },
-                headStyles: { fillColor: [60, 60, 60], textColor: 255 },
-                columnStyles: {
-                    0: { cellWidth: 15 }, 1: { cellWidth: 25 }, 2: { cellWidth: 30 },
-                    3: { cellWidth: 40, halign: 'right' }, 4: { cellWidth: 10, halign: 'center' },
-                    5: { cellWidth: 40, fontStyle: 'bold' }, 6: { cellWidth: 10, halign: 'center' }
-                },
-                margin: { left: 14, right: 14 }
-            });
-            startY = doc.lastAutoTable.finalY + 10;
-        });
-
-        doc.save("fixture_pro.pdf");
+        doc.save("fixture.pdf");
     },
 
-    // --- SYSTEM ---
     saveState: function() { localStorage.setItem('fp_pro_v1', JSON.stringify(State)); },
     
     loadState: function() {
@@ -510,7 +424,7 @@ const App = {
                 if(p.config) Object.assign(State.config, p.config);
                 if(p.teams) State.teams = p.teams;
                 if(p.courts) State.courts = p.courts;
-                // No cargamos matches para forzar regeneración
+                if(p.matches) State.matches = p.matches;
             } catch(e) { console.warn("Datos corruptos."); }
         }
     },
@@ -557,14 +471,3 @@ const App = {
 
 window.App = App;
 document.addEventListener('DOMContentLoaded', () => setTimeout(() => App.init(), 100));
-```
-
-### ✅ Pasos para verificar que funciona
-
-1.  **Recarga la página.**
-2.  Ingresa el Nombre del Torneo y Fecha en el **Paso 1**.
-3.  Haz clic en **"Siguiente: Canchas"**. (Debería avanzar al Paso 2).
-4.  Si te permite avanzar, la navegación está arreglada.
-5.  Sigue hasta el **Paso 4** y prueba generar el fixture.
-
-Si ahora navega correctamente, habremos solucionado el problema crítico de bloqueo.
