@@ -17,6 +17,9 @@
     th { background: #f0f0f0; }
     #results { max-height: 500px; overflow-y: auto; }
   </style>
+    <!-- Librerías para generar PDF en el navegador -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-NaWTH3u08t7OqgktM1+RaSPo6e7iT730cdpShUMHbOWcZH/5LiCFYl8aAkaI0s5momkGLumZ5qX6gPgtqD0P0A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" integrity="sha512-pF/H6uqz3u9+vXr7sCgSo+3++y2N5kSv9xn03aZ6TWnwtoXZj4MeGxI5uKn4nL9/nQm5SNESdHA7FrOvI1BqTw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
   <div class="container">
@@ -78,9 +81,14 @@
     <button id="generateBtn">Generar Fixture</button>
     <div id="results"></div>
     <div id="dailySchedules"></div>
+    <div id="exportPdfContainer" class="form-row" style="display:none; margin-top:10px;">
+  <button id="downloadPdfBtn" type="button">Descargar fixture en PDF</button>
+</div>
   </div>
 
   <script>
+    let lastSchedule = null; // se llenará cada vez que generes un fixture
+
   // Utilidades de tiempo
   function timeToMinutes(str) {
     const [h, m] = str.split(':').map(Number);
@@ -1148,47 +1156,64 @@
     return result;
   }
   // Mostrar resultados en tabla
-  function renderSchedule(schedule) {
-    const container = document.getElementById('results');
-    if (!schedule || schedule.length === 0) {
-      container.innerHTML = '<p>No se generó ningún fixture.</p>';
-      // También limpiar el contenedor de horarios diarios
-      document.getElementById('dailySchedules').innerHTML = '';
-      return;
-    }
-    // Determine which columns to show based on properties
-    const showPhase = 'phase' in schedule[0];
-    const showZone = 'zone' in schedule[0];
-    const showRound = 'round' in schedule[0];
-    const showNo = 'no' in schedule[0];
-    let html = '<table><thead><tr>';
-    if (showNo) html += '<th>No</th>';
-    html += '<th>Día</th><th>Hora</th><th>Cancha</th>';
-    html += '<th>' + (showPhase ? 'Fase/Zona' : (showZone ? 'Zona' : 'Fase')) + '</th>';
-    html += '<th>Local</th><th>Visitante</th>';
-    if (showRound) html += '<th>Ronda</th>';
-    html += '</tr></thead><tbody>';
-    schedule.forEach(m => {
-      html += '<tr>';
-      if (showNo) html += `<td>${m.no !== undefined ? m.no : ''}</td>`;
-      html += `<td>${m.day}</td><td>${m.time}</td><td>${m.field}</td>`;
-      if (showPhase) {
-        html += `<td>${m.phase}</td>`;
-      } else if (showZone) {
-        html += `<td>${m.zone}</td>`;
-      } else {
-        html += '<td></td>';
-      }
-      html += `<td>${m.home}</td><td>${m.away}</td>`;
-      if (showRound) html += `<td>${m.round !== undefined ? m.round : ''}</td>`;
-      html += '</tr>';
-    });
-    html += '</tbody></table>';
-    container.innerHTML = html;
+ // Mostrar resultados en tabla y preparar exportación a PDF
+function renderSchedule(schedule) {
+  const container = document.getElementById('results');
+  const dailyContainer = document.getElementById('dailySchedules');
+  const exportPdfContainer = document.getElementById('exportPdfContainer');
 
-    // Además generar el horario separado por días
-    renderDailySchedules(schedule);
+  if (!schedule || schedule.length === 0) {
+    container.innerHTML = '<p>No se generó ningún fixture.</p>';
+    dailyContainer.innerHTML = '';
+    if (exportPdfContainer) exportPdfContainer.style.display = 'none';
+    lastSchedule = null;
+    return;
   }
+
+  // Guardar el fixture para usarlo al generar el PDF
+  lastSchedule = schedule;
+
+  // Determinar qué columnas mostrar (según el tipo de sistema)
+  const showPhase = 'phase' in schedule[0];
+  const showZone  = 'zone'  in schedule[0];
+  const showRound = 'round' in schedule[0];
+  const showNo    = 'no'    in schedule[0];
+
+  let html = '<table><thead><tr>';
+  if (showNo) html += '<th>No</th>';
+  html += '<th>Día</th><th>Hora</th><th>Cancha</th>';
+  html += '<th>' + (showPhase ? 'Fase/Zona' : (showZone ? 'Zona' : 'Fase')) + '</th>';
+  html += '<th>Local</th><th>Visitante</th>';
+  if (showRound) html += '<th>Ronda</th>';
+  html += '</tr></thead><tbody>';
+
+  schedule.forEach(m => {
+    html += '<tr>';
+    if (showNo) html += `<td>${m.no !== undefined ? m.no : ''}</td>`;
+    html += `<td>${m.day}</td><td>${m.time}</td><td>${m.field}</td>`;
+    if (showPhase) {
+      html += `<td>${m.phase}</td>`;
+    } else if (showZone) {
+      html += `<td>${m.zone}</td>`;
+    } else {
+      html += '<td></td>';
+    }
+    html += `<td>${m.home}</td><td>${m.away}</td>`;
+    if (showRound) html += `<td>${m.round !== undefined ? m.round : ''}</td>`;
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+
+  // Horario por día (ya lo hacías antes)
+  renderDailySchedules(schedule);
+
+  // Mostrar el bloque de exportación en PDF
+  if (exportPdfContainer) {
+    exportPdfContainer.style.display = 'block';
+  }
+}
+
 
   /**
    * Render schedule grouped by day below the main table. Displays tables two per row for readability.
@@ -1440,6 +1465,138 @@
     };
     reader.readAsText(file);
   });
+    // Generar un PDF con diseño azul/celeste, pero legible en B/N
+function generatePdfFromSchedule() {
+  if (!lastSchedule || !lastSchedule.length) {
+    alert('Primero genera un fixture.');
+    return;
+  }
+
+  const schedule = lastSchedule;
+
+  // Obtenemos configuración básica de la página
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4');
+
+  const marginLeft = 15;
+  let currentY = 20;
+
+  // Encabezado del documento
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.setTextColor(13, 71, 161); // azul oscuro (bien en B/N también)
+  doc.text('Fixture del Torneo', marginLeft, currentY);
+
+  currentY += 8;
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(0, 0, 0);
+
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('es-AR');
+  const systemSelect = document.getElementById('systemSelect');
+  const systemText = systemSelect ? systemSelect.options[systemSelect.selectedIndex].text : '';
+
+  doc.text(`Sistema: ${systemText}`, marginLeft, currentY);
+  currentY += 5;
+  doc.text(`Generado el: ${dateStr}`, marginLeft, currentY);
+
+  currentY += 8;
+
+  // Determinar columnas según los datos
+  const showPhase = 'phase' in schedule[0];
+  const showZone  = 'zone'  in schedule[0];
+  const showRound = 'round' in schedule[0];
+  const showNo    = 'no'    in schedule[0];
+
+  const baseHeaders = [];
+  if (showNo) baseHeaders.push('No');
+  baseHeaders.push('Hora', 'Cancha');
+  baseHeaders.push(showPhase ? 'Fase/Zona' : (showZone ? 'Zona' : 'Fase'));
+  baseHeaders.push('Local', 'Visitante');
+  if (showRound) baseHeaders.push('Ronda');
+
+  // Agrupar por día
+  const daysMap = new Map();
+  schedule.forEach(m => {
+    if (!daysMap.has(m.day)) daysMap.set(m.day, []);
+    daysMap.get(m.day).push(m);
+  });
+
+  // Ordenar los días
+  const orderedDays = Array.from(daysMap.keys()).sort((a,b) => a - b);
+
+  orderedDays.forEach((day, idx) => {
+    const matches = daysMap.get(day);
+
+    if (idx > 0) {
+      doc.addPage();
+      currentY = 20;
+    }
+
+    // Subtítulo del día
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(25, 118, 210); // azul medio
+    doc.text(`Día ${day}`, marginLeft, currentY);
+    currentY += 6;
+
+    // Construir filas de la tabla
+    const body = matches.map(m => {
+      const row = [];
+      if (showNo) row.push(m.no !== undefined ? m.no : '');
+      row.push(m.time, m.field);
+
+      let phaseVal = '';
+      if (showPhase) phaseVal = m.phase || '';
+      else if (showZone) phaseVal = m.zone || '';
+      row.push(phaseVal);
+
+      row.push(m.home || '', m.away || '');
+      if (showRound) row.push(m.round !== undefined ? m.round : '');
+      return row;
+    });
+
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+
+    doc.autoTable({
+      startY: currentY,
+      head: [baseHeaders],
+      body,
+      theme: 'grid',
+      styles: {
+        font: 'helvetica',
+        fontSize: 9,
+        cellPadding: 2,
+        lineWidth: 0.1,
+        lineColor: [120, 144, 156] // gris azulado (imprime bien en B/N)
+      },
+      headStyles: {
+        fillColor: [13, 71, 161],   // azul oscuro
+        textColor: [255, 255, 255], // blanco
+        fontStyle: 'bold'
+      },
+      alternateRowStyles: {
+        fillColor: [227, 242, 253]  // celeste muy claro (casi gris)
+      },
+      tableLineColor: [120, 144, 156],
+      tableLineWidth: 0.1,
+      margin: { left: marginLeft, right: 15 }
+    });
+  });
+
+  doc.save('fixture.pdf');
+}
+
+// Vincular el botón al generador de PDF
+document.addEventListener('DOMContentLoaded', () => {
+  const pdfBtn = document.getElementById('downloadPdfBtn');
+  if (pdfBtn) {
+    pdfBtn.addEventListener('click', generatePdfFromSchedule);
+  }
+});
+
   </script>
 </body>
 </html>
