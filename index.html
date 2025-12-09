@@ -1275,7 +1275,7 @@
 
       // Encabezado de día
       doc.setFont('helvetica','bold');
-      doc.setFontSize(14);
+      doc.setFontSize(11);
       doc.setTextColor(25,118,210);
       doc.text('Día ' + day, marginLeft, currentY);
       currentY += 6;
@@ -1321,6 +1321,7 @@
       doc.setFillColor(13,71,161);
       doc.setTextColor(255,255,255);
       doc.setFont('helvetica','bold');
+      doc.setFontSize(10);
       doc.rect(marginLeft, currentY, pageWidth, headerHeight, 'F');
       for (var j=0; j<headers.length; j++) {
         var textX = xPositions[j] + 1;
@@ -1331,6 +1332,7 @@
 
       // Dibujar filas de partidos
       doc.setFont('helvetica','normal');
+      doc.setFontSize(11);
       for (var ri=0; ri<matches.length; ri++) {
         var m = matches[ri];
         // Alternar color de fondo
