@@ -1,0 +1,1556 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generador de Fixtures</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { text-align: center; }
+    .container { max-width: 800px; margin: 0 auto; }
+    .form-row { margin-bottom: 10px; }
+    label { display: block; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 6px; box-sizing: border-box; }
+    button { padding: 8px 16px; margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    th { background: #f0f0f0; }
+    #results { max-height: 500px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Generador de Fixtures Deportivos</h1>
+    <p>Selecciona un archivo CSV con tus equipos y configura los parámetros para generar el calendario.</p>
+    <div class="form-row">
+      <label for="csvInput">Archivo CSV (formato Zona;Equipo):</label>
+      <input type="file" id="csvInput" accept=".csv">
+    </div>
+    <div class="form-row">
+      <label for="systemSelect">Sistema de competencia:</label>
+      <select id="systemSelect">
+        <option value="8x3">8×3 (round‑robin por zonas)</option>
+        <option value="8x3complete">8×3 completo (fase regular + final)</option>
+        <option value="4x6">4×6 (4 zonas de 6 equipos)</option>
+        <option value="8x3complete23">8×3 completo 23 equipos (fase regular + final)</option>
+        <option value="8x3complete22">8×3 completo 22 equipos (fase regular + final)</option>
+        <option value="rr">Round Robin general</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="daysInput">Cantidad de días:</label>
+      <input type="number" id="daysInput" value="5" min="1">
+    </div>
+    <div class="form-row">
+      <label for="fieldsInput">Cantidad de canchas:</label>
+      <input type="number" id="fieldsInput" value="2" min="1">
+    </div>
+
+    <!-- Configuración específica por día. Se generará dinámicamente según la cantidad de días -->
+    <div class="form-row" id="dailyConfigContainer" style="display:none;">
+      <label>Configuración de cada día:</label>
+      <div id="dailyConfigRows"></div>
+    </div>
+    <div class="form-row">
+      <label for="startTimeInput">Hora de inicio (HH:MM):</label>
+      <input type="time" id="startTimeInput" value="09:00">
+    </div>
+    <div class="form-row">
+      <label for="endTimeInput">Hora de fin (HH:MM):</label>
+      <input type="time" id="endTimeInput" value="18:00">
+    </div>
+    <div class="form-row">
+      <label for="matchDurationInput">Duración del partido (minutos):</label>
+      <input type="number" id="matchDurationInput" value="60" min="1">
+    </div>
+    <div class="form-row">
+      <label for="restInput">Descanso entre partidos (minutos):</label>
+      <input type="number" id="restInput" value="60" min="0">
+    </div>
+    <div class="form-row">
+      <label>Pausa al mediodía:</label>
+      <div style="display:flex; gap:5px;">
+        <input type="time" id="breakStartInput" value="12:00">
+        <span>a</span>
+        <input type="time" id="breakEndInput" value="14:00">
+      </div>
+    </div>
+    <button id="generateBtn">Generar Fixture</button>
+    <div id="results"></div>
+    <div id="dailySchedules"></div>
+  </div>
+
+  <script>
+  // Utilidades de tiempo
+  function timeToMinutes(str) {
+    const [h, m] = str.split(':').map(Number);
+    return h * 60 + m;
+  }
+  function minutesToTime(mins) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+
+  // Generate time slots for one day considering a midday break. Used for predefined schedules.
+  function generateDayTimes(startTime, endTime, matchDuration, breakStart, breakEnd) {
+    const times = [];
+    const toMinutes = t => {
+      const [h,m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+    const toTimeStr = m => {
+      const h = Math.floor(m / 60);
+      const mm = m % 60;
+      return String(h).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+    };
+    let current = toMinutes(startTime);
+    const endMin = toMinutes(endTime);
+    const breakStartMin = breakStart ? toMinutes(breakStart) : null;
+    const breakEndMin = breakEnd ? toMinutes(breakEnd) : null;
+    while (current + matchDuration <= endMin) {
+      if (breakStartMin !== null && current >= breakStartMin && current < breakEndMin) {
+        current = breakEndMin;
+        continue;
+      }
+      times.push(toTimeStr(current));
+      current += matchDuration;
+    }
+    return times;
+  }
+
+  // Predefined group stage matches for the 8x3 complete system (matches 1–24)
+  const groupMatches8x3 = [
+    {no:1, day:1, field:'C1', zone:'Z1', home:1, away:2},
+    {no:2, day:1, field:'C2', zone:'Z3', home:1, away:2},
+    {no:3, day:1, field:'C1', zone:'Z2', home:1, away:2},
+    {no:4, day:1, field:'C2', zone:'Z4', home:1, away:2},
+    {no:5, day:1, field:'C1', zone:'Z5', home:1, away:2},
+    {no:6, day:1, field:'C2', zone:'Z7', home:1, away:2},
+    {no:7, day:1, field:'C1', zone:'Z6', home:1, away:2},
+    {no:8, day:1, field:'C2', zone:'Z8', home:1, away:2},
+    {no:9, day:1, field:'C1', zone:'Z1', home:2, away:3},
+    {no:10, day:1, field:'C2', zone:'Z3', home:2, away:3},
+    {no:11, day:1, field:'C1', zone:'Z2', home:2, away:3},
+    {no:12, day:1, field:'C2', zone:'Z4', home:2, away:3},
+    {no:13, day:2, field:'C1', zone:'Z5', home:2, away:3},
+    {no:14, day:2, field:'C2', zone:'Z7', home:2, away:3},
+    {no:15, day:2, field:'C1', zone:'Z6', home:2, away:3},
+    {no:16, day:2, field:'C2', zone:'Z8', home:2, away:3},
+    {no:17, day:2, field:'C1', zone:'Z1', home:3, away:1},
+    {no:18, day:2, field:'C2', zone:'Z3', home:3, away:1},
+    {no:19, day:2, field:'C1', zone:'Z2', home:3, away:1},
+    {no:20, day:2, field:'C2', zone:'Z4', home:3, away:1},
+    {no:21, day:2, field:'C1', zone:'Z5', home:3, away:1},
+    {no:22, day:2, field:'C2', zone:'Z7', home:3, away:1},
+    {no:23, day:2, field:'C1', zone:'Z6', home:3, away:1},
+    {no:24, day:2, field:'C2', zone:'Z8', home:3, away:1},
+  ];
+
+  // Predefined final phase matches for the 8x3 complete system (matches 25–64)
+  const finalMatches8x3 = [
+    // Day 3
+    {no:25, day:3, field:'C1', phase:'ZA1', home:'1Z1', away:'1Z3'},
+    {no:26, day:3, field:'C2', phase:'ZA1', home:'1Z5', away:'1Z7'},
+    {no:27, day:3, field:'C1', phase:'ZA2', home:'1Z2', away:'1Z4'},
+    {no:28, day:3, field:'C2', phase:'ZA2', home:'1Z6', away:'1Z8'},
+    {no:29, day:3, field:'C1', phase:'LLAVE C', home:'3Z1', away:'3Z3'},
+    {no:30, day:3, field:'C2', phase:'LLAVE C', home:'3Z5', away:'3Z7'},
+    {no:31, day:3, field:'C1', phase:'LLAVE C', home:'3Z2', away:'3Z4'},
+    {no:32, day:3, field:'C2', phase:'LLAVE C', home:'3Z6', away:'3Z8'},
+    {no:33, day:3, field:'C1', phase:'LLAVE B', home:'2Z1', away:'2Z3'},
+    {no:34, day:3, field:'C2', phase:'LLAVE B', home:'2Z5', away:'2Z7'},
+    {no:35, day:3, field:'C1', phase:'LLAVE B', home:'2Z2', away:'2Z4'},
+    {no:36, day:3, field:'C2', phase:'LLAVE B', home:'2Z6', away:'2Z8'},
+    {no:37, day:3, field:'C1', phase:'ZA1', home:'1Z3', away:'1Z5'},
+    {no:38, day:3, field:'C2', phase:'ZA1', home:'1Z7', away:'1Z1'},
+    {no:39, day:3, field:'C1', phase:'ZA2', home:'1Z4', away:'1Z6'},
+    {no:40, day:3, field:'C2', phase:'ZA2', home:'1Z8', away:'1Z2'},
+    // Day 4
+    {no:41, day:4, field:'C1', phase:'LLAVE C', home:'PP29', away:'PP30'},
+    {no:42, day:4, field:'C2', phase:'LLAVE C', home:'PP31', away:'PP32'},
+    {no:43, day:4, field:'C1', phase:'LLAVE C', home:'GP29', away:'GP30'},
+    {no:44, day:4, field:'C2', phase:'LLAVE C', home:'GP31', away:'GP32'},
+    {no:45, day:4, field:'C1', phase:'LLAVE B', home:'PP33', away:'PP34'},
+    {no:46, day:4, field:'C2', phase:'LLAVE B', home:'PP35', away:'PP36'},
+    {no:47, day:4, field:'C1', phase:'LLAVE B', home:'GP33', away:'GP34'},
+    {no:48, day:4, field:'C2', phase:'LLAVE B', home:'GP35', away:'GP36'},
+    {no:49, day:4, field:'C1', phase:'ZA1', home:'1Z1', away:'1Z5'},
+    {no:50, day:4, field:'C2', phase:'ZA1', home:'1Z7', away:'1Z3'},
+    {no:51, day:4, field:'C1', phase:'ZA2', home:'1Z2', away:'1Z6'},
+    {no:52, day:4, field:'C2', phase:'ZA2', home:'1Z8', away:'1Z4'},
+    {no:53, day:4, field:'C1', phase:'23º - 24º', home:'PP41', away:'PP42'},
+    {no:54, day:4, field:'C2', phase:'21º - 22º', home:'GP41', away:'GP42'},
+    {no:55, day:4, field:'C1', phase:'19º - 20º', home:'PP43', away:'PP44'},
+    {no:56, day:4, field:'C2', phase:'17º - 18º', home:'GP43', away:'GP44'},
+    // Day 5
+    {no:57, day:5, field:'C1', phase:'15º - 16º', home:'PP45', away:'PP46'},
+    {no:58, day:5, field:'C2', phase:'13º - 14º', home:'GP45', away:'GP46'},
+    {no:59, day:5, field:'C1', phase:'11º - 12º', home:'PP47', away:'PP48'},
+    {no:60, day:5, field:'C2', phase:'9º - 10º', home:'GP47', away:'GP48'},
+    {no:61, day:5, field:'C1', phase:'7º - 8º', home:'4ZA1', away:'4ZA2'},
+    {no:62, day:5, field:'C2', phase:'5º - 6º', home:'3ZA1', away:'3ZA2'},
+    {no:63, day:5, field:'C1', phase:'3º - 4º', home:'2ZA1', away:'2ZA2'},
+    {no:64, day:5, field:'C2', phase:'1º - 2º', home:'1ZA1', away:'1ZA2'},
+  ];
+
+  // Predefined group stage matches for the 8x3 system when there are only 23 teams.
+  // Zone Z8 has only two teams, so there are 23 matches instead of 24. The ordering
+  // follows the PDF provided for the 23‑team tournament. Matches 1–23 are spread
+  // across two days with fields C1 and C2. Seeds correspond to positions within
+  // each zone (1=primero, 2=segundo, 3=tercero). The third seed for Z8 is
+  // intentionally omitted.
+  const groupMatches23 = [
+    {no:1, day:1, field:'C1', zone:'Z1', home:1, away:2},
+    {no:2, day:1, field:'C2', zone:'Z3', home:1, away:2},
+    {no:3, day:1, field:'C1', zone:'Z2', home:1, away:2},
+    {no:4, day:1, field:'C2', zone:'Z4', home:1, away:2},
+    {no:5, day:1, field:'C1', zone:'Z5', home:1, away:2},
+    {no:6, day:1, field:'C2', zone:'Z7', home:1, away:2},
+    {no:7, day:1, field:'C1', zone:'Z6', home:1, away:2},
+    {no:8, day:1, field:'C2', zone:'Z8', home:1, away:2},
+    {no:9, day:1, field:'C1', zone:'Z1', home:2, away:3},
+    {no:10, day:1, field:'C2', zone:'Z3', home:2, away:3},
+    {no:11, day:1, field:'C1', zone:'Z2', home:2, away:3},
+    {no:12, day:1, field:'C2', zone:'Z4', home:2, away:3},
+    {no:13, day:2, field:'C1', zone:'Z5', home:2, away:3},
+    {no:14, day:2, field:'C2', zone:'Z7', home:2, away:3},
+    {no:15, day:2, field:'C1', zone:'Z6', home:2, away:3},
+    {no:16, day:2, field:'C1', zone:'Z1', home:3, away:1},
+    {no:17, day:2, field:'C2', zone:'Z3', home:3, away:1},
+    {no:18, day:2, field:'C1', zone:'Z2', home:3, away:1},
+    {no:19, day:2, field:'C2', zone:'Z4', home:3, away:1},
+    {no:20, day:2, field:'C1', zone:'Z5', home:3, away:1},
+    {no:21, day:2, field:'C2', zone:'Z7', home:3, away:1},
+    {no:22, day:2, field:'C1', zone:'Z6', home:3, away:1},
+    {no:23, day:2, field:'C2', zone:'Z8', home:2, away:1}
+  ];
+
+  // Predefined final phase matches for the 8x3 system with 23 teams. This is
+  // derived from the standard 8x3 final phase schedule but modified so that
+  // matches involving the absent third team from zone 8 become BYE encounters.
+  // Specifically, match 32 (3Z6 vs 3Z8) is changed to 3Z6 vs BYE, and match 42
+  // (PP31 vs PP32) becomes PP31 vs BYE. All other matches remain the same.
+  const finalMatches23 = finalMatches8x3.map(m => {
+    // clone the object to avoid mutating the original array
+    const copy = { ...m };
+    if (copy.no === 32) {
+      copy.away = 'BYE';
+    }
+    if (copy.no === 42) {
+      copy.away = 'BYE';
+    }
+    // Replace GP42 with PP31 and remove PP42 references. We'll adjust match 54 below.
+    return copy;
+  }).filter(m => m.no !== 53).map(m => {
+    // After filtering, update specific entries:
+    if (m.no === 54) {
+      // In the 23-team format, the opponent in match 54 is PP31 instead of GP42
+      m.away = 'PP31';
+    }
+    return m;
+  });
+
+  // Predefined group stage matches for the 8x3 system when there are only 22 teams.
+  // Zones Z1–Z6 have three teams each (seeds 1–3), while Z7 and Z8 have only two
+  // teams (seeds 1–2). To balance the group phase across two days, we schedule
+  // 11 matches on day 1 and 11 matches on day 2. For the three‑team zones, two
+  // of the three round‑robin games are played on one day and the remaining game
+  // on the other. The two‑team zones (Z7 and Z8) play home‑and‑away games
+  // across the two days. This ordering is adapted from the original 24‑team
+  // schedule while ensuring an even split of matches between the first two days.
+  // Predefined group stage matches for the 22‑team variant.
+  // The ordering of matches within each day follows the same zone sequence
+  // used in the official 24‑team fixture (Z1, Z3, Z2, Z4, Z5, Z7, Z6, Z8)
+  // and omits games involving the missing teams. Each of the two‑team
+  // zones (Z7 and Z8) plays a home‑and‑away series.
+  const groupMatches22 = [
+    // Day 1 – 11 matches (ordered by zones Z1, Z3, Z2, Z4, Z5, Z7, Z6, Z8 and then repeating Z1, Z3, Z2)
+    {no:1,  day:1, field:'C1', zone:'Z1', home:1, away:2}, // Z1: 1‑2
+    {no:2,  day:1, field:'C2', zone:'Z3', home:1, away:2}, // Z3: 7‑8
+    {no:3,  day:1, field:'C1', zone:'Z2', home:1, away:2}, // Z2: 4‑5
+    {no:4,  day:1, field:'C2', zone:'Z4', home:1, away:2}, // Z4: 10‑11
+    {no:5,  day:1, field:'C1', zone:'Z5', home:1, away:2}, // Z5: 13‑14
+    {no:6,  day:1, field:'C2', zone:'Z7', home:1, away:2}, // Z7: 19‑20 (ida)
+    {no:7,  day:1, field:'C1', zone:'Z6', home:1, away:2}, // Z6: 16‑17
+    {no:8,  day:1, field:'C2', zone:'Z8', home:1, away:2}, // Z8: 22‑23 (ida)
+    {no:9,  day:1, field:'C1', zone:'Z1', home:2, away:3}, // Z1: 2‑3
+    {no:10, day:1, field:'C2', zone:'Z3', home:2, away:3}, // Z3: 8‑9
+    {no:11, day:1, field:'C1', zone:'Z2', home:2, away:3}, // Z2: 5‑6
+    // Day 2 – 11 matches (ordered by the same base zone sequence and additional games in the same order)
+    {no:12, day:2, field:'C1', zone:'Z1', home:3, away:1}, // Z1: 3‑1
+    {no:13, day:2, field:'C2', zone:'Z3', home:3, away:1}, // Z3: 9‑7
+    {no:14, day:2, field:'C1', zone:'Z2', home:3, away:1}, // Z2: 6‑4
+    {no:15, day:2, field:'C2', zone:'Z4', home:2, away:3}, // Z4: 11‑12
+    {no:16, day:2, field:'C1', zone:'Z5', home:2, away:3}, // Z5: 14‑15
+    {no:17, day:2, field:'C2', zone:'Z7', home:2, away:1}, // Z7: 20‑19 (vuelta)
+    {no:18, day:2, field:'C1', zone:'Z6', home:2, away:3}, // Z6: 17‑18
+    {no:19, day:2, field:'C2', zone:'Z8', home:2, away:1}, // Z8: 23‑22 (vuelta)
+    {no:20, day:2, field:'C1', zone:'Z4', home:3, away:1}, // Z4: 12‑10
+    {no:21, day:2, field:'C2', zone:'Z5', home:3, away:1}, // Z5: 15‑13
+    {no:22, day:2, field:'C1', zone:'Z6', home:3, away:1}  // Z6: 18‑16
+  ];
+
+  // Predefined final phase matches for the 8x3 system with 22 teams. This is
+  // derived from the standard 8x3 final phase schedule but modified so that
+  // matches involving the absent third teams in zones 7 and 8 become BYE
+  // encounters. Specifically, match 30 (3Z5 vs 3Z7) and match 32 (3Z6 vs 3Z8)
+  // are changed to BYE matches. Additionally, match 41 (PP29 vs PP30) and
+  // match 42 (PP31 vs PP32) are BYE matches because of the earlier BYEs.
+  // Match 53 (23º - 24º) is removed entirely since only 22 positions are
+  // needed. Match 54 (21º - 22º) is adjusted to pit PP29 against PP31 as in
+  // the 23‑team schedule. All other matches remain the same.
+  const finalMatches22 = finalMatches8x3.map(m => {
+    const copy = { ...m };
+    // BYE in the first round of LLAVE C
+    if (copy.no === 30 || copy.no === 32) {
+      copy.away = 'BYE';
+    }
+    // BYE in the second round of LLAVE C
+    if (copy.no === 41 || copy.no === 42) {
+      copy.away = 'BYE';
+    }
+    return copy;
+  }).filter(m => m.no !== 53).map(m => {
+    // In the 22‑team variant, the match for positions 21º‑22º (match 54) pits
+    // the losers of matches 29 and 31 against each other (PP29 vs PP31), as both
+    // of their second‑round opponents were BYEs. Override both the home and
+    // away seeds accordingly.
+    if (m.no === 54) {
+      m.home = 'PP29';
+      m.away = 'PP31';
+    }
+    return m;
+  });
+
+  /**
+   * Generate the complete fixture for the 8x3 system when there are only 22 teams.
+   * This variant accounts for zones with two teams (Z7 and Z8) and BYE matches
+   * in the final phase. It follows the same logic as generateFixture8x3Complete
+   * but uses different predefined matches and group assignments. When possible,
+   * it preserves the original distribution of matches per day (11 on day 1,
+   * 11 on day 2, 16 on day 3 and 15 on day 4 (including BYE matches), and 8 on
+   * day 5). Day 3 still lists 16 matches (with two BYE encounters) and day 4
+   * lists 15 matches (with two BYE encounters and one removed match) as in the
+   * official bracket. If the
+   * user‑defined availability cannot accommodate this distribution, it falls back
+   * to a flexible assignment across all available timeslots.
+   * @param {Array} teams List of team objects or names; should have at least 22 entries.
+   * @param {string} startTime Start of the playing day (HH:MM)
+   * @param {string} endTime End of the playing day (HH:MM)
+   * @param {number} matchDuration Duration of a match in minutes
+   * @param {string} breakStart Start of midday break (HH:MM)
+   * @param {string} breakEnd End of midday break (HH:MM)
+   * @param {number} days Number of days available
+   * @param {number} fields Number of fields available each day
+   * @param {number} rest Minimum rest time between matches for a team (minutes)
+   * @param {Array} dailyConfigs Optional array of per‑day configurations
+   * @returns {Array} Schedule of matches with day, time, field, phase and team names
+   */
+  function generateFixture8x3Complete22(teams, startTime, endTime, matchDuration, breakStart, breakEnd, days, fields, rest, dailyConfigs) {
+    // Prepare team names and group assignments. For 22 teams the final two
+    // zones (Z7 and Z8) only contain two competitors, so we assign the
+    // provided names accordingly and add a BYE as the third seed in each of
+    // those zones. When names are provided via CSV, we do not attempt to
+    // infer missing numbers but simply consume the first 22 entries in order.
+    // Without a CSV, we generate a default list of 22 names (1–20, 22 and 23)
+    // and then build groups. In both cases the groups array is constructed
+    // explicitly by slicing three names for zones 1–6 and two names for
+    // zones 7–8. A BYE is appended to the two‑team zones as their third
+    // position. The resulting teamNames list is a flattened version of these
+    // groups and is used to derive seeds for the final phase.
+    let teamNames;
+    let groups = {};
+    if (teams && teams.length >= 22) {
+      const provided = teams.map(t => t.name || t).slice(0, 22);
+      let index = 0;
+      // Assign zones 1–6 with three teams each
+      for (let z = 1; z <= 6; z++) {
+        groups['Z' + z] = [provided[index], provided[index + 1], provided[index + 2]];
+        index += 3;
+      }
+      // Assign zones 7 and 8 with two teams each and a BYE
+      groups['Z7'] = [provided[index], provided[index + 1], 'BYE'];
+      index += 2;
+      groups['Z8'] = [provided[index], provided[index + 1], 'BYE'];
+      // Flatten the groups into teamNames in zone order (Z1..Z8)
+      teamNames = [];
+      for (let z = 1; z <= 8; z++) {
+        teamNames = teamNames.concat(groups['Z' + z]);
+      }
+    } else {
+      // Generate default names: Equipo 1–20, Equipo 22 and Equipo 23 (skip 21)
+      const baseNames = [];
+      for (let i = 1; baseNames.length < 22; i++) {
+        if (i === 21) continue;
+        baseNames.push('Equipo ' + i);
+      }
+      let index = 0;
+      // Assign zones 1–6
+      for (let z = 1; z <= 6; z++) {
+        groups['Z' + z] = [baseNames[index], baseNames[index + 1], baseNames[index + 2]];
+        index += 3;
+      }
+      // Assign zones 7 and 8 with two teams and a BYE
+      groups['Z7'] = [baseNames[index], baseNames[index + 1], 'BYE'];
+      index += 2;
+      groups['Z8'] = [baseNames[index], baseNames[index + 1], 'BYE'];
+      teamNames = [];
+      for (let z = 1; z <= 8; z++) {
+        teamNames = teamNames.concat(groups['Z' + z]);
+      }
+    }
+    // At this point, groups contains the explicit assignment of teams to zones
+    // with BYE as the third slot for zones 7 and 8, and teamNames is the
+    // flattened array used for seeding in the final phase.
+    // Build combined list of matches. Retain BYE matches in this list so seed names (e.g., GP32) are preserved.
+    const allMatches = groupMatches22.concat(finalMatches22);
+    // Generate timeslots
+    const allSlots = generateTimeslots(days, fields, startTime, endTime, matchDuration, breakStart, breakEnd, dailyConfigs);
+    // Group timeslots by day and sort them
+    const timeslotsByDay = {};
+    allSlots.forEach(slot => {
+      if (!timeslotsByDay[slot.day]) timeslotsByDay[slot.day] = [];
+      timeslotsByDay[slot.day].push(slot);
+    });
+    for (const d in timeslotsByDay) {
+      timeslotsByDay[d].sort((a, b) => {
+        const tmA = timeToMinutes(a.time);
+        const tmB = timeToMinutes(b.time);
+        if (tmA !== tmB) return tmA - tmB;
+        return a.field.localeCompare(b.field);
+      });
+    }
+    // Group matches by their intended day (PDF day)
+    const matchesByPdfDay = {};
+    allMatches.forEach(m => {
+      if (!matchesByPdfDay[m.day]) matchesByPdfDay[m.day] = [];
+      matchesByPdfDay[m.day].push(m);
+    });
+    // Determine if we can respect the original distribution (need at least 5 days and enough slots per day)
+    let canUsePdfDays = true;
+    const pdfDays = [1, 2, 3, 4, 5];
+    const effectiveDays = (dailyConfigs && Array.isArray(dailyConfigs) && dailyConfigs.length > 0) ? dailyConfigs.length : days;
+    if (effectiveDays < 5) {
+      canUsePdfDays = false;
+    } else {
+      for (let i = 0; i < pdfDays.length; i++) {
+        const d = pdfDays[i];
+        const matchesThisDay = matchesByPdfDay[d] || [];
+        // Count only matches that require a timeslot (i.e., not BYE encounters)
+        const requiredMatches = matchesThisDay.filter(m => m.home !== 'BYE' && m.away !== 'BYE');
+        const slotsThisDay = timeslotsByDay[d] || [];
+        if (slotsThisDay.length < requiredMatches.length) {
+          canUsePdfDays = false;
+          break;
+        }
+      }
+    }
+    // If possible, schedule using the original days
+    if (canUsePdfDays) {
+      const schedule = [];
+      for (let i = 0; i < pdfDays.length; i++) {
+        const d = pdfDays[i];
+        const dayMatches = matchesByPdfDay[d] || [];
+        // Separate non‑BYE and BYE matches
+        const nonByeMatches = dayMatches.filter(m => m.home !== 'BYE' && m.away !== 'BYE');
+        const byeMatches = dayMatches.filter(m => m.home === 'BYE' || m.away === 'BYE');
+        nonByeMatches.sort((a, b) => a.no - b.no);
+        const slots = timeslotsByDay[d] || [];
+        for (let j = 0; j < nonByeMatches.length; j++) {
+          const match = nonByeMatches[j];
+          const slot = slots[j];
+          let homeName, awayName, phase;
+          if (match.zone) {
+            homeName = getTeamBySeed8x3(match.zone, match.home, groups);
+            awayName = getTeamBySeed8x3(match.zone, match.away, groups);
+            phase = 'Zona ' + match.zone.replace('Z','');
+          } else {
+            homeName = match.home;
+            awayName = match.away;
+            phase = match.phase;
+          }
+          schedule.push({ no: match.no, day: slot.day, time: slot.time, field: slot.field.toUpperCase(), phase: phase, home: homeName, away: awayName });
+        }
+        // Append BYE matches without occupying a slot
+        for (const match of byeMatches) {
+          let homeName, awayName, phase;
+          if (match.zone) {
+            homeName = getTeamBySeed8x3(match.zone, match.home, groups);
+            awayName = getTeamBySeed8x3(match.zone, match.away, groups);
+            phase = 'Zona ' + match.zone.replace('Z','');
+          } else {
+            homeName = match.home;
+            awayName = match.away;
+            phase = match.phase;
+          }
+          schedule.push({ no: match.no, day: d, time: '', field: '', phase: phase, home: homeName, away: awayName });
+        }
+      }
+      schedule.sort((a, b) => a.no - b.no);
+      return schedule;
+    }
+    // Flexible assignment: schedule non‑BYE matches across available timeslots
+    const matchesToSchedule = allMatches.filter(m => m.home !== 'BYE' && m.away !== 'BYE');
+    if (allSlots.length < matchesToSchedule.length) {
+      alert('Con los parámetros seleccionados no hay suficientes turnos para programar todos los partidos. Aumenta la cantidad de días, canchas o ajusta los horarios.');
+      throw new Error('No hay suficientes slots');
+    }
+    const groupMatchCount = groupMatches22.length;
+    const lastPlayed = {};
+    const schedule = [];
+    const usedSlots = new Set();
+    for (let i = 0; i < matchesToSchedule.length; i++) {
+      const match = matchesToSchedule[i];
+      const homeId = match.zone ? getTeamBySeed8x3(match.zone, match.home, groups) : match.home;
+      const awayId = match.zone ? getTeamBySeed8x3(match.zone, match.away, groups) : match.away;
+      let assigned = false;
+      const isFinalPhase = match.no > groupMatchCount;
+      for (let s = 0; s < allSlots.length; s++) {
+        if (usedSlots.has(s)) continue;
+        const slot = allSlots[s];
+        if (isFinalPhase && slot.day <= 2) continue;
+        const absTime = slot.abs;
+        const lastH = lastPlayed[homeId] !== undefined ? lastPlayed[homeId] : -Infinity;
+        const lastA = lastPlayed[awayId] !== undefined ? lastPlayed[awayId] : -Infinity;
+        if (rest && absTime - lastH < rest) continue;
+        if (rest && absTime - lastA < rest) continue;
+        let homeName, awayName, phase;
+        if (match.zone) {
+          homeName = homeId;
+          awayName = awayId;
+          phase = 'Zona ' + match.zone.replace('Z','');
+        } else {
+          homeName = match.home;
+          awayName = match.away;
+          phase = match.phase;
+        }
+        schedule.push({ no: match.no, day: slot.day, time: slot.time, field: slot.field.toUpperCase(), phase: phase, home: homeName, away: awayName });
+        lastPlayed[homeId] = absTime;
+        lastPlayed[awayId] = absTime;
+        usedSlots.add(s);
+        assigned = true;
+        break;
+      }
+      if (!assigned) {
+        alert('No se pudo asignar horario a todos los partidos. Ajusta días, canchas o descanso.');
+        throw new Error('Asignación imposible');
+      }
+    }
+    // Append BYE matches after scheduling
+    const byeMatches = allMatches.filter(m => m.home === 'BYE' || m.away === 'BYE');
+    for (const match of byeMatches) {
+      let homeName, awayName, phase;
+      if (match.zone) {
+        homeName = getTeamBySeed8x3(match.zone, match.home, groups);
+        awayName = getTeamBySeed8x3(match.zone, match.away, groups);
+        phase = 'Zona ' + match.zone.replace('Z','');
+      } else {
+        homeName = match.home;
+        awayName = match.away;
+        phase = match.phase;
+      }
+      schedule.push({ no: match.no, day: match.day, time: '', field: '', phase: phase, home: homeName, away: awayName });
+    }
+    schedule.sort((a, b) => a.no - b.no);
+    return schedule;
+  }
+
+  // Helper to get team name based on zone and seed for group stage
+  function getTeamBySeed8x3(zone, seed, groups) {
+    if (typeof seed === 'number') {
+      const group = groups[zone] || [];
+      // If the requested seed exceeds the group size (e.g., zone with only two teams), return BYE
+      const name = group[seed - 1];
+      return name !== undefined ? name : 'BYE';
+    }
+    return seed;
+  }
+
+  /**
+   * Generate the complete fixture for the 8x3 system when there are only 23 teams.
+   * This variant accounts for a zone with two teams (Z8) and two BYE matches in
+   * the final phase. It follows the same logic as generateFixture8x3Complete but
+   * uses different predefined matches and group assignments. When possible, it
+   * preserves the original distribution of matches per day (12 on day 1, 11 on
+   * day 2, 16 on day 3, 16 on day 4 and 8 on day 5). If the user‑defined
+   * availability cannot accommodate this distribution, it falls back to a
+   * flexible assignment across all available timeslots.
+   * @param {Array} teams List of team objects or names; should have at least 23 entries.
+   * @param {string} startTime
+   * @param {string} endTime
+   * @param {number} matchDuration
+   * @param {string} breakStart
+   * @param {string} breakEnd
+   * @param {number} days
+   * @param {number} fields
+   * @param {number} rest
+   * @param {Array} dailyConfigs
+   * @returns {Array} Schedule of matches with day, time, field, phase and team names
+   */
+  function generateFixture8x3Complete23(teams, startTime, endTime, matchDuration, breakStart, breakEnd, days, fields, rest, dailyConfigs) {
+    // Prepare team names. Use provided names or generate defaults. Expect at least 23 names.
+    const teamNames = teams.map(t => t.name || t).slice(0, 23);
+    while (teamNames.length < 23) {
+      teamNames.push('Equipo ' + (teamNames.length + 1));
+    }
+    // Push a BYE placeholder to make 24 slots; this represents the missing third team in zone 8.
+    teamNames.push('BYE');
+    // Assign teams to zones. Zones 1–7 receive 3 teams; zone 8 receives 3 entries with one being BYE.
+    const groups = {};
+    let idx = 0;
+    for (let z = 1; z <= 8; z++) {
+      const size = (z === 8 ? 3 : 3);
+      groups['Z' + z] = teamNames.slice(idx, idx + size);
+      idx += size;
+    }
+    // Build combined list of matches. We'll retain BYE matches here so that seed names (e.g. GP32) are preserved,
+    // but we will skip scheduling any match where either side is BYE.
+    const allMatches = groupMatches23.concat(finalMatches23);
+    // Generate timeslots
+    const allSlots = generateTimeslots(days, fields, startTime, endTime, matchDuration, breakStart, breakEnd, dailyConfigs);
+    // Group timeslots by day and sort
+    const timeslotsByDay = {};
+    allSlots.forEach(slot => {
+      if (!timeslotsByDay[slot.day]) timeslotsByDay[slot.day] = [];
+      timeslotsByDay[slot.day].push(slot);
+    });
+    for (const d in timeslotsByDay) {
+      timeslotsByDay[d].sort((a, b) => {
+        const tmA = timeToMinutes(a.time);
+        const tmB = timeToMinutes(b.time);
+        if (tmA !== tmB) return tmA - tmB;
+        return a.field.localeCompare(b.field);
+      });
+    }
+    // Group matches by PDF day
+    const matchesByPdfDay = {};
+    allMatches.forEach(m => {
+      if (!matchesByPdfDay[m.day]) matchesByPdfDay[m.day] = [];
+      matchesByPdfDay[m.day].push(m);
+    });
+    // Determine if we can respect the original distribution
+    let canUsePdfDays = true;
+    const pdfDays = [1, 2, 3, 4, 5];
+    const effectiveDays = (dailyConfigs && Array.isArray(dailyConfigs) && dailyConfigs.length > 0) ? dailyConfigs.length : days;
+    if (effectiveDays < 5) {
+      canUsePdfDays = false;
+    } else {
+      for (let i = 0; i < pdfDays.length; i++) {
+        const d = pdfDays[i];
+        const matchesThisDay = matchesByPdfDay[d] || [];
+        const slotsThisDay = timeslotsByDay[d] || [];
+        if (slotsThisDay.length < matchesThisDay.length) {
+          canUsePdfDays = false;
+          break;
+        }
+      }
+    }
+    if (canUsePdfDays) {
+      const schedule = [];
+      for (let i = 0; i < pdfDays.length; i++) {
+        const d = pdfDays[i];
+        const dayMatches = matchesByPdfDay[d] || [];
+        // Separate non‑BYE and BYE matches to schedule only the non‑BYE ones into timeslots.
+        const nonByeMatches = dayMatches.filter(m => m.home !== 'BYE' && m.away !== 'BYE');
+        const byeMatches = dayMatches.filter(m => m.home === 'BYE' || m.away === 'BYE');
+        nonByeMatches.sort((a, b) => a.no - b.no);
+        const slots = timeslotsByDay[d] || [];
+        // Assign non‑BYE matches sequentially to timeslots
+        for (let j = 0; j < nonByeMatches.length; j++) {
+          const match = nonByeMatches[j];
+          const slot = slots[j];
+          let homeName, awayName, phase;
+          if (match.zone) {
+            homeName = getTeamBySeed8x3(match.zone, match.home, groups);
+            awayName = getTeamBySeed8x3(match.zone, match.away, groups);
+            phase = 'Zona ' + match.zone.replace('Z','');
+          } else {
+            homeName = match.home;
+            awayName = match.away;
+            phase = match.phase;
+          }
+          schedule.push({ no: match.no, day: slot.day, time: slot.time, field: slot.field.toUpperCase(), phase: phase, home: homeName, away: awayName });
+        }
+        // Append BYE matches without occupying a slot (no time/field). They appear in the listing for reference.
+        for (const match of byeMatches) {
+          let homeName, awayName, phase;
+          if (match.zone) {
+            // Group stage BYE not expected in 23‑team tournament, but handle generically
+            homeName = getTeamBySeed8x3(match.zone, match.home, groups);
+            awayName = getTeamBySeed8x3(match.zone, match.away, groups);
+            phase = 'Zona ' + match.zone.replace('Z','');
+          } else {
+            homeName = match.home;
+            awayName = match.away;
+            phase = match.phase;
+          }
+          schedule.push({ no: match.no, day: d, time: '', field: '', phase: phase, home: homeName, away: awayName });
+        }
+      }
+      schedule.sort((a, b) => a.no - b.no);
+      return schedule;
+    }
+    // Flexible assignment
+    // Flexible assignment. First, filter out matches against BYE so they do not take up slots.
+    const matchesToSchedule = allMatches.filter(m => m.home !== 'BYE' && m.away !== 'BYE');
+    if (allSlots.length < matchesToSchedule.length) {
+      alert('Con los parámetros seleccionados no hay suficientes turnos para programar todos los partidos. Aumenta la cantidad de días, canchas o ajusta los horarios.');
+      throw new Error('No hay suficientes slots');
+    }
+    // Determine how many group stage matches exist (they must be scheduled before final phase)
+    const groupMatchCount = groupMatches23.length;
+    const lastPlayed = {};
+    const schedule = [];
+    const usedSlots = new Set();
+    for (let i = 0; i < matchesToSchedule.length; i++) {
+      const match = matchesToSchedule[i];
+      // Determine identifiers for rest tracking
+      const homeId = match.zone ? getTeamBySeed8x3(match.zone, match.home, groups) : match.home;
+      const awayId = match.zone ? getTeamBySeed8x3(match.zone, match.away, groups) : match.away;
+      let assigned = false;
+      // For final‑phase matches (match.no > groupMatchCount), restrict to slots on day >= 3
+      const isFinalPhase = match.no > groupMatchCount;
+      for (let s = 0; s < allSlots.length; s++) {
+        if (usedSlots.has(s)) continue;
+        const slot = allSlots[s];
+        // Skip slots on day 1 or 2 for final‑phase matches
+        if (isFinalPhase && slot.day <= 2) continue;
+        const absTime = slot.abs;
+        const lastH = lastPlayed[homeId] !== undefined ? lastPlayed[homeId] : -Infinity;
+        const lastA = lastPlayed[awayId] !== undefined ? lastPlayed[awayId] : -Infinity;
+        if (rest && absTime - lastH < rest) continue;
+        if (rest && absTime - lastA < rest) continue;
+        let homeName, awayName, phase;
+        if (match.zone) {
+          homeName = homeId;
+          awayName = awayId;
+          phase = 'Zona ' + match.zone.replace('Z','');
+        } else {
+          homeName = match.home;
+          awayName = match.away;
+          phase = match.phase;
+        }
+        schedule.push({ no: match.no, day: slot.day, time: slot.time, field: slot.field.toUpperCase(), phase: phase, home: homeName, away: awayName });
+        lastPlayed[homeId] = absTime;
+        lastPlayed[awayId] = absTime;
+        usedSlots.add(s);
+        assigned = true;
+        break;
+      }
+      if (!assigned) {
+        alert('No se pudo asignar horario a todos los partidos. Ajusta días, canchas o descanso.');
+        throw new Error('Asignación imposible');
+      }
+    }
+    // After scheduling all non‑BYE matches, append BYE matches without occupying timeslots.
+    const byeMatches = allMatches.filter(m => m.home === 'BYE' || m.away === 'BYE');
+    for (const match of byeMatches) {
+      let homeName, awayName, phase;
+      if (match.zone) {
+        homeName = getTeamBySeed8x3(match.zone, match.home, groups);
+        awayName = getTeamBySeed8x3(match.zone, match.away, groups);
+        phase = 'Zona ' + match.zone.replace('Z','');
+      } else {
+        homeName = match.home;
+        awayName = match.away;
+        phase = match.phase;
+      }
+      schedule.push({ no: match.no, day: match.day, time: '', field: '', phase: phase, home: homeName, away: awayName });
+    }
+    schedule.sort((a, b) => a.no - b.no);
+    return schedule;
+  }
+
+  /**
+   * Generate the complete fixture for the 8x3 system with final phase.
+   * @param {Array} teams Array of team objects with at least a 'name' property. Assumed length >= 24.
+   * @param {string} startTime Start of playing day (HH:MM)
+   * @param {string} endTime End of playing day (HH:MM)
+   * @param {number} matchDuration Duration of a match in minutes
+   * @param {string} breakStart Start of midday break (HH:MM)
+   * @param {string} breakEnd End of midday break (HH:MM)
+   * @returns {Array} List of match objects with properties day, time, field, home, away, phase
+   */
+  function generateFixture8x3Complete(teams, startTime, endTime, matchDuration, breakStart, breakEnd, days, fields, rest, dailyConfigs) {
+    /*
+      Generate a schedule for the 8×3 system with phase final. The function first
+      attempts to preserve the original distribution of partidos por día (como en el PDF),
+      siempre que haya suficientes turnos en esos días. Si el calendario original no se
+      puede respetar con los parámetros proporcionados (por ejemplo, menos de 5 días o
+      turnos insuficientes), entonces se aplica un algoritmo flexible que asigna los
+      partidos de manera secuencial a los turnos disponibles.
+    */
+    // Prepare team names and assign them to zones (Z1..Z8)
+    const teamNames = teams.map(t => t.name || t).slice(0, 24);
+    while (teamNames.length < 24) {
+      teamNames.push('Equipo ' + (teamNames.length + 1));
+    }
+    const groups = {};
+    let idx = 0;
+    for (let z = 1; z <= 8; z++) {
+      groups['Z' + z] = teamNames.slice(idx, idx + 3);
+      idx += 3;
+    }
+    // Combined list of matches in the order defined in the PDF
+    const allMatches = groupMatches8x3.concat(finalMatches8x3);
+    // Generate all timeslots across user-defined days and fields
+    const allSlots = generateTimeslots(days, fields, startTime, endTime, matchDuration, breakStart, breakEnd, dailyConfigs);
+    // Group timeslots by day and sort them by time then field
+    const timeslotsByDay = {};
+    allSlots.forEach(slot => {
+      if (!timeslotsByDay[slot.day]) timeslotsByDay[slot.day] = [];
+      timeslotsByDay[slot.day].push(slot);
+    });
+    for (const d in timeslotsByDay) {
+      timeslotsByDay[d].sort((a, b) => {
+        // compare by time then field to produce consistent ordering
+        const tmA = timeToMinutes(a.time);
+        const tmB = timeToMinutes(b.time);
+        if (tmA !== tmB) return tmA - tmB;
+        return a.field.localeCompare(b.field);
+      });
+    }
+    // Group matches by their original PDF day (1..5)
+    const matchesByPdfDay = {};
+    allMatches.forEach(m => {
+      if (!matchesByPdfDay[m.day]) matchesByPdfDay[m.day] = [];
+      matchesByPdfDay[m.day].push(m);
+    });
+    // Determine if we can respect the original distribution: need at least 5 days and enough slots per day
+    let canUsePdfDays = true;
+    const pdfDays = [1, 2, 3, 4, 5];
+    // Determinar el número efectivo de días disponibles (si hay dailyConfigs se utiliza su longitud)
+    const effectiveDays = (dailyConfigs && Array.isArray(dailyConfigs) && dailyConfigs.length > 0) ? dailyConfigs.length : days;
+    if (effectiveDays < 5) {
+      canUsePdfDays = false;
+    } else {
+      for (let i = 0; i < pdfDays.length; i++) {
+        const d = pdfDays[i];
+        const matchesThisDay = matchesByPdfDay[d] || [];
+        const slotsThisDay = timeslotsByDay[d] || [];
+        if (slotsThisDay.length < matchesThisDay.length) {
+          canUsePdfDays = false;
+          break;
+        }
+      }
+    }
+    // If possible, schedule using original days
+    if (canUsePdfDays) {
+      const schedule = [];
+      // iterate through pdf days in order
+      for (let i = 0; i < pdfDays.length; i++) {
+        const d = pdfDays[i];
+        const dayMatches = matchesByPdfDay[d] || [];
+        // sort matches by match number to ensure predetermined order
+        dayMatches.sort((a, b) => a.no - b.no);
+        const slots = timeslotsByDay[d] || [];
+        for (let j = 0; j < dayMatches.length; j++) {
+          const match = dayMatches[j];
+          const slot = slots[j];
+          let homeName, awayName, phase;
+          if (match.zone) {
+            homeName = getTeamBySeed8x3(match.zone, match.home, groups);
+            awayName = getTeamBySeed8x3(match.zone, match.away, groups);
+            phase = 'Zona ' + match.zone.replace('Z','');
+          } else {
+            homeName = match.home;
+            awayName = match.away;
+            phase = match.phase;
+          }
+          schedule.push({ no: match.no, day: slot.day, time: slot.time, field: slot.field.toUpperCase(), phase: phase, home: homeName, away: awayName });
+        }
+      }
+      // sort by match number to keep overall order
+      schedule.sort((a, b) => a.no - b.no);
+      return schedule;
+    }
+    // Otherwise, fall back to flexible assignment across all timeslots.
+    // If there are not enough slots in total, alert and stop
+    if (allSlots.length < allMatches.length) {
+      alert('Con los parámetros seleccionados no hay suficientes turnos para programar todos los partidos. Aumenta la cantidad de días, canchas o ajusta los horarios.');
+      throw new Error('No hay suficientes slots');
+    }
+    // Determine how many group stage matches exist (they must be scheduled before final phase)
+    const groupMatchCount = groupMatches8x3.length;
+    // Assign matches to slots while respecting rest time and ensuring final phase matches are not placed on days 1 or 2
+    const lastPlayed = {};
+    const schedule = [];
+    const usedSlots = new Set();
+    for (let i = 0; i < allMatches.length; i++) {
+      const match = allMatches[i];
+      const homeId = match.zone ? getTeamBySeed8x3(match.zone, match.home, groups) : match.home;
+      const awayId = match.zone ? getTeamBySeed8x3(match.zone, match.away, groups) : match.away;
+      let assigned = false;
+      // Determine if this is a final-phase match (match numbers > groupMatchCount)
+      const isFinalPhase = match.no > groupMatchCount;
+      for (let s = 0; s < allSlots.length; s++) {
+        if (usedSlots.has(s)) continue;
+        const slot = allSlots[s];
+        // Skip early day slots for final-phase matches
+        if (isFinalPhase && slot.day <= 2) continue;
+        const absTime = slot.abs;
+        const lastH = lastPlayed[homeId] !== undefined ? lastPlayed[homeId] : -Infinity;
+        const lastA = lastPlayed[awayId] !== undefined ? lastPlayed[awayId] : -Infinity;
+        if (rest && absTime - lastH < rest) continue;
+        if (rest && absTime - lastA < rest) continue;
+        let homeName, awayName, phase;
+        if (match.zone) {
+          homeName = homeId;
+          awayName = awayId;
+          phase = 'Zona ' + match.zone.replace('Z','');
+        } else {
+          homeName = match.home;
+          awayName = match.away;
+          phase = match.phase;
+        }
+        schedule.push({ no: match.no, day: slot.day, time: slot.time, field: slot.field.toUpperCase(), phase: phase, home: homeName, away: awayName });
+        lastPlayed[homeId] = absTime;
+        lastPlayed[awayId] = absTime;
+        usedSlots.add(s);
+        assigned = true;
+        break;
+      }
+      if (!assigned) {
+        alert('No se pudo asignar horario a todos los partidos. Ajusta días, canchas o descanso.');
+        throw new Error('Asignación imposible');
+      }
+    }
+    schedule.sort((a, b) => a.no - b.no);
+    return schedule;
+  }
+  // Generar lista de timeslots
+  function generateTimeslots(days, fields, startTime, endTime, matchDuration, breakStart, breakEnd, dailyConfigs) {
+    /*
+      Genera una lista de turnos (slots) para todos los días. Si se proporciona dailyConfigs,
+      entonces usa la configuración específica de cada día (campos, horarios y cortes)
+      para producir los turnos; de lo contrario, asume parámetros uniformes para todos
+      los días (usando days, fields, startTime, endTime, breakStart y breakEnd).
+    */
+    const slots = [];
+    let index = 0;
+    // Si se proporciona configuración diaria específica
+    if (dailyConfigs && Array.isArray(dailyConfigs) && dailyConfigs.length > 0) {
+      dailyConfigs.forEach((cfg, idxDay) => {
+        const d = idxDay + 1;
+        const startMin = timeToMinutes(cfg.start);
+        const endMin = timeToMinutes(cfg.end);
+        const breakStartMin = cfg.breakStart ? timeToMinutes(cfg.breakStart) : null;
+        const breakEndMin = cfg.breakEnd ? timeToMinutes(cfg.breakEnd) : null;
+        let current = startMin;
+        while (current + matchDuration <= endMin) {
+          if (breakStartMin !== null && current >= breakStartMin && current < breakEndMin) {
+            current = breakEndMin;
+            continue;
+          }
+          const timeStr = minutesToTime(current);
+          for (let f = 1; f <= cfg.fields; f++) {
+            const fieldName = 'c' + f;
+            slots.push({ day: d, time: timeStr, field: fieldName, abs: (d - 1) * 1440 + current, idx: index++ });
+          }
+          current += matchDuration;
+        }
+      });
+      return slots;
+    }
+    // Caso uniforme para todos los días
+    const startMin = timeToMinutes(startTime);
+    const endMin = timeToMinutes(endTime);
+    const breakStartMin = breakStart ? timeToMinutes(breakStart) : null;
+    const breakEndMin = breakEnd ? timeToMinutes(breakEnd) : null;
+    for (let d = 1; d <= days; d++) {
+      let current = startMin;
+      while (current + matchDuration <= endMin) {
+        if (breakStartMin !== null && current >= breakStartMin && current < breakEndMin) {
+          current = breakEndMin;
+          continue;
+        }
+        const timeStr = minutesToTime(current);
+        for (let f = 1; f <= fields; f++) {
+          const fieldName = 'c' + f;
+          slots.push({ day: d, time: timeStr, field: fieldName, abs: (d - 1) * 1440 + current, idx: index++ });
+        }
+        current += matchDuration;
+      }
+    }
+    return slots;
+  }
+  // Algoritmo round robin
+  function generateRoundRobin(teamNames, homeAndAway) {
+    const teams = teamNames.slice();
+    const rounds = [];
+    let bye = false;
+    if (teams.length % 2 === 1) {
+      teams.push('BYE');
+      bye = true;
+    }
+    const n = teams.length;
+    for (let r = 0; r < n - 1; r++) {
+      const matches = [];
+      for (let i = 0; i < n / 2; i++) {
+        const home = teams[i];
+        const away = teams[n - 1 - i];
+        if (home !== 'BYE' && away !== 'BYE') {
+          matches.push({ home, away });
+        }
+      }
+      rounds.push(matches);
+      // rotación
+      const tmp = teams.slice(1);
+      teams.splice(1, teams.length - 1, teams[n - 1], ...tmp.slice(0, -1));
+    }
+    if (homeAndAway) {
+      const second = rounds.map(round => round.map(m => ({ home: m.away, away: m.home })));
+      return rounds.concat(second);
+    }
+    return rounds;
+  }
+  // Asignar zonas según sistema
+  function assignZones(teams, system) {
+    if (teams.every(t => t.zone)) return teams;
+    let groupSize;
+    const n = teams.length;
+    if (system === '8x3' && n === 24) {
+      groupSize = 3;
+    } else if (system === '4x6' && n === 24) {
+      groupSize = 6;
+    } else {
+      // todos en la misma zona
+      return teams.map(t => ({ ...t, zone: 'A' }));
+    }
+    const zones = [];
+    for (let i = 0; i < n / groupSize; i++) zones.push(String.fromCharCode(65 + i));
+    return teams.map((t, idx) => ({ ...t, zone: zones[Math.floor(idx / groupSize)] }));
+  }
+
+  // Actualiza la sección de configuración diaria según la cantidad de días seleccionados.
+  function updateDailyConfig() {
+    const days = parseInt(document.getElementById('daysInput').value);
+    const dailyContainer = document.getElementById('dailyConfigContainer');
+    const rowsContainer = document.getElementById('dailyConfigRows');
+    // Si el número de días no es válido, oculta la sección y limpia filas
+    if (!days || days < 1) {
+      rowsContainer.innerHTML = '';
+      dailyContainer.style.display = 'none';
+      return;
+    }
+    // Obtener valores globales para usar como predeterminados
+    const globalFields = parseInt(document.getElementById('fieldsInput').value) || 1;
+    const globalStart = document.getElementById('startTimeInput').value;
+    const globalEnd = document.getElementById('endTimeInput').value;
+    const globalBreakStart = document.getElementById('breakStartInput').value;
+    const globalBreakEnd = document.getElementById('breakEndInput').value;
+    // Construir filas por día
+    rowsContainer.innerHTML = '';
+    for (let d = 1; d <= days; d++) {
+      const row = document.createElement('div');
+      row.className = 'daily-row';
+      row.dataset.day = d;
+      // Crear inputs con clases específicas para facilitar la lectura posterior
+      row.innerHTML = `
+        <div style="margin:6px 0; font-weight:bold;">Día ${d}</div>
+        <label>Canchas:</label>
+        <input type="number" class="fieldsPerDay" value="${globalFields}" min="1" style="margin-bottom:4px;">
+        <label>Inicio:</label>
+        <input type="time" class="startPerDay" value="${globalStart}" style="margin-bottom:4px;">
+        <label>Fin:</label>
+        <input type="time" class="endPerDay" value="${globalEnd}" style="margin-bottom:4px;">
+        <label>Pausa inicio:</label>
+        <input type="time" class="breakStartPerDay" value="${globalBreakStart}" style="margin-bottom:4px;">
+        <label>Pausa fin:</label>
+        <input type="time" class="breakEndPerDay" value="${globalBreakEnd}" style="margin-bottom:8px;">
+        <hr>
+      `;
+      rowsContainer.appendChild(row);
+    }
+    // Mostrar la sección
+    dailyContainer.style.display = 'block';
+  }
+
+  // Al cargar la página, inicializa la configuración diaria y actualízala si cambia el número de días
+  window.addEventListener('load', updateDailyConfig);
+  document.getElementById('daysInput').addEventListener('change', updateDailyConfig);
+  // Generar fixture completo
+  function generateFixture(teams, system, days, fields, startTime, endTime, matchDuration, rest, breakStart, breakEnd, homeAndAway, dailyConfigs) {
+    const teamsWithZones = assignZones(teams, system);
+    // Agrupar por zona
+    const zones = {};
+    teamsWithZones.forEach(t => {
+      if (!zones[t.zone]) zones[t.zone] = [];
+      zones[t.zone].push(t);
+    });
+    // Obtener partidos sin asignar
+    const matches = [];
+    for (const zone in zones) {
+      const names = zones[zone].map(t => t.name);
+      const rounds = generateRoundRobin(names, homeAndAway);
+      rounds.forEach((pairs, roundIndex) => {
+        pairs.forEach(pair => {
+          matches.push({ zone, home: pair.home, away: pair.away, round: roundIndex + 1 });
+        });
+      });
+    }
+    // Timeslots
+    const timeslots = generateTimeslots(days, fields, startTime, endTime, matchDuration, breakStart, breakEnd, dailyConfigs);
+    // Asignación
+    const lastPlayed = {};
+    const schedule = [];
+    const usedSlots = new Set();
+    matches.forEach(m => {
+      let assigned = false;
+      for (let i = 0; i < timeslots.length; i++) {
+        if (usedSlots.has(i)) continue;
+        const slot = timeslots[i];
+        const absTime = slot.abs;
+        const lastH = lastPlayed[m.home] || -Infinity;
+        const lastA = lastPlayed[m.away] || -Infinity;
+        if (absTime - lastH < rest) continue;
+        if (absTime - lastA < rest) continue;
+        // asignar
+        schedule.push({ day: slot.day, time: slot.time, field: slot.field, home: m.home, away: m.away, zone: m.zone, round: m.round });
+        lastPlayed[m.home] = absTime;
+        lastPlayed[m.away] = absTime;
+        usedSlots.add(i);
+        assigned = true;
+        break;
+      }
+      if (!assigned) {
+        alert('No se pudo asignar horario a todos los partidos. Ajusta días, canchas o descanso.');
+        throw new Error('Asignación imposible');
+      }
+    });
+    // Ordenar
+    schedule.sort((a, b) => {
+      if (a.day !== b.day) return a.day - b.day;
+      if (a.time !== b.time) return timeToMinutes(a.time) - timeToMinutes(b.time);
+      return a.field.localeCompare(b.field);
+    });
+    return schedule;
+  }
+  // Parsear CSV
+  function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    const result = [];
+    const header = lines[0].split(/;|,/).map(h => h.trim());
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const parts = line.split(/;|,/).map(p => p.trim());
+      const obj = {};
+      for (let j = 0; j < header.length && j < parts.length; j++) {
+        obj[header[j]] = parts[j];
+      }
+      // Normalizar propiedades
+      const name = obj['Equipos'] || obj['Equipo'] || obj['Team'] || parts[1] || parts[0];
+      const zone = obj['Zona'] || obj['Zone'] || '';
+      result.push({ name: name, zone: zone });
+    }
+    return result;
+  }
+  // Mostrar resultados en tabla
+  function renderSchedule(schedule) {
+    const container = document.getElementById('results');
+    if (!schedule || schedule.length === 0) {
+      container.innerHTML = '<p>No se generó ningún fixture.</p>';
+      // También limpiar el contenedor de horarios diarios
+      document.getElementById('dailySchedules').innerHTML = '';
+      return;
+    }
+    // Determine which columns to show based on properties
+    const showPhase = 'phase' in schedule[0];
+    const showZone = 'zone' in schedule[0];
+    const showRound = 'round' in schedule[0];
+    const showNo = 'no' in schedule[0];
+    let html = '<table><thead><tr>';
+    if (showNo) html += '<th>No</th>';
+    html += '<th>Día</th><th>Hora</th><th>Cancha</th>';
+    html += '<th>' + (showPhase ? 'Fase/Zona' : (showZone ? 'Zona' : 'Fase')) + '</th>';
+    html += '<th>Local</th><th>Visitante</th>';
+    if (showRound) html += '<th>Ronda</th>';
+    html += '</tr></thead><tbody>';
+    schedule.forEach(m => {
+      html += '<tr>';
+      if (showNo) html += `<td>${m.no !== undefined ? m.no : ''}</td>`;
+      html += `<td>${m.day}</td><td>${m.time}</td><td>${m.field}</td>`;
+      if (showPhase) {
+        html += `<td>${m.phase}</td>`;
+      } else if (showZone) {
+        html += `<td>${m.zone}</td>`;
+      } else {
+        html += '<td></td>';
+      }
+      html += `<td>${m.home}</td><td>${m.away}</td>`;
+      if (showRound) html += `<td>${m.round !== undefined ? m.round : ''}</td>`;
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    // Además generar el horario separado por días
+    renderDailySchedules(schedule);
+  }
+
+  /**
+   * Render schedule grouped by day below the main table. Displays tables two per row for readability.
+   * @param {Array} schedule - List of scheduled matches with properties day, time, field, phase/zone, home, away, no etc.
+   */
+  function renderDailySchedules(schedule) {
+    const container = document.getElementById('dailySchedules');
+    // Agrupar por día
+    const byDay = {};
+    schedule.forEach(m => {
+      if (!byDay[m.day]) byDay[m.day] = [];
+      byDay[m.day].push(m);
+    });
+    // Ordenar los días numéricamente
+    const days = Object.keys(byDay).map(Number).sort((a, b) => a - b);
+    // Determinar si se debe mostrar la columna "No" en las tablas diarias
+    const showNoDaily = schedule.some(m => m.no !== undefined);
+    let html = '';
+    /*
+      Agrupamos las tablas de días en filas de dos columnas para que se muestren
+      uno al lado del otro. Cada fila contendrá hasta dos "day-section". Esto
+      garantiza que, independientemente del ancho disponible, los días se
+      muestren de a pares y no todos en una sola columna.
+    */
+    for (let i = 0; i < days.length; i += 2) {
+      html += '<div style="display:flex; gap:10px; margin-bottom:10px;">';
+      for (let j = i; j < i + 2 && j < days.length; j++) {
+        const d = days[j];
+        const matches = byDay[d];
+        // Ordenar los partidos por hora y luego por cancha
+        matches.sort((a, b) => {
+          const tmA = timeToMinutes(a.time);
+          const tmB = timeToMinutes(b.time);
+          if (tmA !== tmB) return tmA - tmB;
+          return a.field.localeCompare(b.field);
+        });
+        // Cada sección ocupará la mitad del ancho disponible
+        html += '<div class="day-section" style="flex:1; border:1px solid #ccc; padding:8px;">';
+        html += '<h3>Día ' + d + '</h3>';
+        html += '<table style="width:100%; border-collapse:collapse;">';
+        html += '<thead><tr>';
+        if (showNoDaily) html += '<th>No</th>';
+        html += '<th>Hora</th><th>Cancha</th><th>Fase/Zona</th><th>Local</th><th>Visitante</th></tr></thead><tbody>';
+        matches.forEach(m => {
+          html += '<tr>';
+          if (showNoDaily) html += '<td>' + (m.no !== undefined ? m.no : '') + '</td>';
+          html += '<td>' + m.time + '</td>';
+          html += '<td>' + m.field + '</td>';
+          html += '<td>' + (m.phase || m.zone || '') + '</td>';
+          html += '<td>' + m.home + '</td>';
+          html += '<td>' + m.away + '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    container.innerHTML = html;
+  }
+  // Manejar clic de generar
+  document.getElementById('generateBtn').addEventListener('click', () => {
+    const fileInput = document.getElementById('csvInput');
+    const system = document.getElementById('systemSelect').value;
+    // Read common parameters
+    const days = parseInt(document.getElementById('daysInput').value);
+    const fields = parseInt(document.getElementById('fieldsInput').value);
+    const startTime = document.getElementById('startTimeInput').value;
+    const endTime = document.getElementById('endTimeInput').value;
+    const matchDuration = parseInt(document.getElementById('matchDurationInput').value);
+    const rest = parseInt(document.getElementById('restInput').value);
+    const breakStart = document.getElementById('breakStartInput').value;
+    const breakEnd = document.getElementById('breakEndInput').value;
+    const homeAndAway = false; // se puede ampliar en la interfaz
+    // Leer configuración diaria si existe
+    let dailyConfigs = [];
+    const dailyRows = document.querySelectorAll('.daily-row');
+    if (dailyRows && dailyRows.length > 0) {
+      dailyRows.forEach((row) => {
+        const dc = {
+          fields: parseInt(row.querySelector('.fieldsPerDay').value) || 1,
+          start: row.querySelector('.startPerDay').value || startTime,
+          end: row.querySelector('.endPerDay').value || endTime,
+          breakStart: row.querySelector('.breakStartPerDay').value || breakStart,
+          breakEnd: row.querySelector('.breakEndPerDay').value || breakEnd
+        };
+        dailyConfigs.push(dc);
+      });
+    }
+
+    // Helper to process CSV into team objects
+    const processCSV = (text) => {
+      const lines = text.trim().split(/\r?\n/);
+      const header = lines[0].split(/;|,/).map(h => h.trim());
+      const teams = [];
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const parts = line.split(/;|,/).map(p => p.trim());
+        const obj = {};
+        for (let j = 0; j < header.length && j < parts.length; j++) {
+          obj[header[j]] = parts[j];
+        }
+        const name = obj['Equipos'] || obj['Equipo'] || obj['Team'] || parts[1] || parts[0];
+        const zone = obj['Zona'] || obj['Zone'] || '';
+        teams.push({ name: name, zone: zone });
+      }
+      return teams;
+    };
+
+    // If using 8x3 complete system (24 teams), CSV is optional
+    if (system === '8x3complete') {
+      const loadAndGenerate = (teams) => {
+        try {
+          const schedule = generateFixture8x3Complete(
+            teams,
+            startTime,
+            endTime,
+            matchDuration,
+            breakStart,
+            breakEnd,
+            days,
+            fields,
+            rest,
+            dailyConfigs
+          );
+          renderSchedule(schedule);
+        } catch (err) {
+          console.error(err);
+        }
+      };
+      if (!fileInput.files || fileInput.files.length === 0) {
+        // Use default team names 1..24 if no CSV provided
+        const defaultTeams = [];
+        for (let i = 1; i <= 24; i++) defaultTeams.push({ name: 'Equipo ' + i, zone: '' });
+        loadAndGenerate(defaultTeams);
+      } else {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const text = e.target.result;
+          const teams = processCSV(text);
+          loadAndGenerate(teams);
+        };
+        reader.readAsText(file);
+      }
+      return;
+    }
+    // If using 8x3 complete system with 23 teams, CSV is optional
+    if (system === '8x3complete23') {
+      const loadAndGenerate = (teams) => {
+        try {
+          const schedule = generateFixture8x3Complete23(
+            teams,
+            startTime,
+            endTime,
+            matchDuration,
+            breakStart,
+            breakEnd,
+            days,
+            fields,
+            rest,
+            dailyConfigs
+          );
+          renderSchedule(schedule);
+        } catch (err) {
+          console.error(err);
+        }
+      };
+      if (!fileInput.files || fileInput.files.length === 0) {
+        // Use default team names 1..23 if no CSV provided; zone assignment will pad with BYE internally
+        const defaultTeams = [];
+        for (let i = 1; i <= 23; i++) defaultTeams.push({ name: 'Equipo ' + i, zone: '' });
+        loadAndGenerate(defaultTeams);
+      } else {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const text = e.target.result;
+          const teams = processCSV(text);
+          loadAndGenerate(teams);
+        };
+        reader.readAsText(file);
+      }
+      return;
+    }
+
+    // If using 8x3 complete system with 22 teams, CSV is optional
+    if (system === '8x3complete22') {
+      const loadAndGenerate = (teams) => {
+        try {
+          const schedule = generateFixture8x3Complete22(
+            teams,
+            startTime,
+            endTime,
+            matchDuration,
+            breakStart,
+            breakEnd,
+            days,
+            fields,
+            rest,
+            dailyConfigs
+          );
+          renderSchedule(schedule);
+        } catch (err) {
+          console.error(err);
+        }
+      };
+      if (!fileInput.files || fileInput.files.length === 0) {
+        // Build the default list of 22 team names for the 22‑team tournament.
+        // Skip number 21 (there is no team 21) and include number 23.
+        const defaultTeams = [];
+        for (let i = 1; i <= 20; i++) {
+          defaultTeams.push({ name: 'Equipo ' + i, zone: '' });
+        }
+        // Add Equipo 22 and Equipo 23 explicitly to complete the 22 competitors
+        defaultTeams.push({ name: 'Equipo 22', zone: '' });
+        defaultTeams.push({ name: 'Equipo 23', zone: '' });
+        loadAndGenerate(defaultTeams);
+      } else {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const text = e.target.result;
+          const teams = processCSV(text);
+          loadAndGenerate(teams);
+        };
+        reader.readAsText(file);
+      }
+      return;
+    }
+
+    // For other systems, require CSV
+    if (!fileInput.files || fileInput.files.length === 0) {
+      alert('Debes seleccionar un archivo CSV con los equipos.');
+      return;
+    }
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const text = e.target.result;
+      try {
+        const teams = processCSV(text);
+        const schedule = generateFixture(teams, system, days, fields, startTime, endTime, matchDuration, rest, breakStart, breakEnd, homeAndAway, dailyConfigs);
+        renderSchedule(schedule);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+  });
+  // -----------------------------------------------------------------------------
+  //  Generación de PDF
+  //
+  //  Esta función construye un documento PDF a partir del fixture almacenado en
+  //  la variable global `lastSchedule`.  Organiza los partidos por día y usa
+  //  colores azules y celestes en el encabezado y filas alternadas para que
+  //  resulte elegante pero también legible en blanco y negro.
+  function generatePdfFromSchedule() {
+    if (!lastSchedule || lastSchedule.length === 0) {
+      alert('Primero genera un fixture.');
+      return;
+    }
+    var doc = new jsPDF('p','mm','a4');
+    var marginLeft = 14;
+    // Agrupar por día los partidos
+    var daysMap = {};
+    lastSchedule.forEach(function(m) {
+      if (!daysMap[m.day]) daysMap[m.day] = [];
+      daysMap[m.day].push(m);
+    });
+    var orderedDays = Object.keys(daysMap).sort(function(a,b) { return a - b; });
+    // Obtener texto del sistema y fecha
+    var systemSelectEl = document.getElementById('systemSelect');
+    var systemText = systemSelectEl ? systemSelectEl.options[systemSelectEl.selectedIndex].text : '';
+    var today = new Date();
+    var dateStr = today.toLocaleDateString('es-AR');
+    // Generar una página por cada día
+    orderedDays.forEach(function(day, idx) {
+      if (idx > 0) {
+        doc.addPage();
+      }
+      var currentY = 20;
+      // Título de la página
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(18);
+      doc.setTextColor(13,71,161);
+      doc.text('Fixture del Torneo', marginLeft, currentY);
+      currentY += 8;
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(11);
+      doc.setTextColor(0,0,0);
+      doc.text('Sistema: ' + systemText, marginLeft, currentY);
+      currentY += 5;
+      doc.text('Generado el: ' + dateStr, marginLeft, currentY);
+      currentY += 8;
+      // Subtítulo del día
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(14);
+      doc.setTextColor(25,118,210);
+      doc.text('Día ' + day, marginLeft, currentY);
+      currentY += 6;
+      // Calcular encabezados según propiedades presentes
+      var matches = daysMap[day];
+      var showPhase = 'phase' in matches[0];
+      var showZone  = 'zone'  in matches[0];
+      var showRound = 'round' in matches[0];
+      var showNo    = 'no'    in matches[0];
+      var headers = [];
+      if (showNo) headers.push('No');
+      headers.push('Hora','Cancha');
+      headers.push(showPhase ? 'Fase/Zona' : (showZone ? 'Zona' : 'Fase'));
+      headers.push('Local','Visitante');
+      if (showRound) headers.push('Ronda');
+      var body = matches.map(function(m) {
+        var row = [];
+        if (showNo) row.push(m.no !== undefined ? m.no : '');
+        row.push(m.time, m.field);
+        var phaseVal = '';
+        if (showPhase) phaseVal = m.phase || '';
+        else if (showZone) phaseVal = m.zone || '';
+        row.push(phaseVal);
+        row.push(m.home || '', m.away || '');
+        if (showRound) row.push(m.round !== undefined ? m.round : '');
+        return row;
+      });
+      doc.autoTable({
+        startY: currentY,
+        head: [headers],
+        body: body,
+        theme: 'grid',
+        styles: {
+          font: 'helvetica',
+          fontSize: 9,
+          cellPadding: 2,
+          lineWidth: 0.1,
+          lineColor: [120,144,156]
+        },
+        headStyles: {
+          fillColor: [13,71,161],
+          textColor: [255,255,255],
+          fontStyle: 'bold'
+        },
+        alternateRowStyles: {
+          fillColor: [227,242,253]
+        },
+        tableLineColor: [120,144,156],
+        tableLineWidth: 0.1,
+        margin: { left: marginLeft, right: 14 }
+      });
+    });
+    doc.save('fixture.pdf');
+  }
+
+  // Registrar el evento de clic para generar el PDF cuando el documento esté listo
+  document.addEventListener('DOMContentLoaded', function() {
+    var pdfBtn = document.getElementById('downloadPdfBtn');
+    if (pdfBtn) {
+      pdfBtn.addEventListener('click', generatePdfFromSchedule);
+    }
+  });
+
+  </script>
+</body>
+</html>
